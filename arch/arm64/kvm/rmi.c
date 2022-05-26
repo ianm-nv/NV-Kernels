@@ -837,6 +837,212 @@ static int realm_create_protected_data_page(struct kvm *kvm,
 	return ret;
 }
 
+static int fold_rtt(struct realm *realm, unsigned long addr, int level)
+{
+	phys_addr_t rtt_addr;
+	int ret;
+
+	ret = realm_rtt_fold(realm, addr, level, &rtt_addr);
+	if (ret)
+		return ret;
+
+	free_rtt(rtt_addr);
+
+	return 0;
+}
+
+static unsigned long addr_range_desc(unsigned long phys, unsigned long size)
+{
+	unsigned long out = 0;
+
+	switch (size) {
+	case P4D_SIZE:
+		out = 0 | (1 << 2);
+		break;
+	case PUD_SIZE:
+		out = 1 | (1 << 2);
+		break;
+	case PMD_SIZE:
+		out = 2 | (1 << 2);
+		break;
+	case PAGE_SIZE:
+		out = 3 | (1 << 2);
+		break;
+	default:
+		/*
+		 * Only support mapping at the page level granulatity when
+		 * it's an unusual length. This should get us back onto a larger
+		 * block size for the subsequent mappings.
+		 */
+		out = 3 | ((MIN(size >> PAGE_SHIFT, PTRS_PER_PTE - 1)) << 2);
+		break;
+	}
+
+	WARN_ON(phys & ~PAGE_MASK);
+
+	out |= phys & PAGE_MASK;
+
+	return out;
+}
+
+int realm_map_protected(struct kvm *kvm,
+			unsigned long ipa,
+			kvm_pfn_t pfn,
+			unsigned long map_size,
+			struct kvm_mmu_memory_cache *memcache)
+{
+	struct realm *realm = &kvm->arch.realm;
+	phys_addr_t phys = __pfn_to_phys(pfn);
+	phys_addr_t rd = virt_to_phys(realm->rd);
+	unsigned long base_ipa = ipa;
+	unsigned long ipa_top = ipa + map_size;
+	int map_level = IS_ALIGNED(map_size, RMM_L2_BLOCK_SIZE) ?
+			RMM_RTT_BLOCK_LEVEL : RMM_RTT_MAX_LEVEL;
+	int ret = 0;
+
+	if (WARN_ON(!IS_ALIGNED(map_size, PAGE_SIZE) ||
+		    !IS_ALIGNED(ipa, map_size)))
+		return -EINVAL;
+
+	if (map_level < RMM_RTT_MAX_LEVEL) {
+		/*
+		 * A temporary RTT is needed during the map, precreate it,
+		 * however if there is an error (e.g. missing parent tables)
+		 * this will be handled below.
+		 */
+		realm_create_rtt_levels(realm, ipa, map_level,
+					RMM_RTT_MAX_LEVEL, memcache);
+	}
+
+	if (delegate_range(phys, map_size)) {
+		/*
+		 * It's likely we raced with another VCPU on the same
+		 * fault. Assume the other VCPU has handled the fault
+		 * and return to the guest.
+		 */
+		return 0;
+	}
+
+	while (ipa < ipa_top) {
+		unsigned long flags = RMI_ADDR_TYPE_SINGLE;
+		unsigned long range_desc = addr_range_desc(phys, ipa_top - ipa);
+		unsigned long out_top;
+
+		ret = rmi_rtt_data_map(rd, ipa, ipa_top, flags, range_desc,
+				       &out_top);
+
+		if (RMI_RETURN_STATUS(ret) == RMI_ERROR_RTT) {
+			/* Create missing RTTs and retry */
+			int level = RMI_RETURN_INDEX(ret);
+
+			WARN_ON(level == RMM_RTT_MAX_LEVEL);
+			ret = realm_create_rtt_levels(realm, ipa, level,
+						      RMM_RTT_MAX_LEVEL,
+						      memcache);
+			if (ret)
+				goto err_undelegate;
+
+			ret = rmi_rtt_data_map(rd, ipa, ipa_top, flags,
+					       range_desc, &out_top);
+		}
+
+		if (WARN_ON(ret))
+			goto err_undelegate;
+
+		phys += out_top - ipa;
+		ipa = out_top;
+	}
+
+	if (map_size == RMM_L2_BLOCK_SIZE) {
+		ret = fold_rtt(realm, base_ipa, map_level + 1);
+		if (WARN_ON(ret))
+			goto err;
+	}
+
+	return 0;
+
+err_undelegate:
+	if (WARN_ON(undelegate_range(phys, map_size))) {
+		/* Page can't be returned to NS world so is lost */
+		get_page(phys_to_page(phys));
+	}
+err:
+	realm_unmap_private_range(kvm, base_ipa, ipa, true);
+	return -ENXIO;
+}
+
+int realm_map_non_secure(struct realm *realm,
+			 unsigned long ipa,
+			 kvm_pfn_t pfn,
+			 unsigned long size,
+			 enum kvm_pgtable_prot prot,
+			 struct kvm_mmu_memory_cache *memcache)
+{
+	unsigned long attr;
+	phys_addr_t rd = virt_to_phys(realm->rd);
+	phys_addr_t phys = __pfn_to_phys(pfn);
+	unsigned long offset;
+	/* TODO: Support block mappings */
+	int map_level = RMM_RTT_MAX_LEVEL;
+	int map_size = rmi_rtt_level_mapsize(map_level);
+	int ret = 0;
+
+	if (WARN_ON(!IS_ALIGNED(size, PAGE_SIZE) ||
+		    !IS_ALIGNED(ipa, size)))
+		return -EINVAL;
+
+	switch (prot & (KVM_PGTABLE_PROT_DEVICE | KVM_PGTABLE_PROT_NORMAL_NC)) {
+	case KVM_PGTABLE_PROT_DEVICE | KVM_PGTABLE_PROT_NORMAL_NC:
+		return -EINVAL;
+	case KVM_PGTABLE_PROT_DEVICE:
+		attr = PTE_S2_MEMATTR(MT_S2_FWB_DEVICE_nGnRE);
+		break;
+	case KVM_PGTABLE_PROT_NORMAL_NC:
+		attr = PTE_S2_MEMATTR(MT_S2_FWB_NORMAL_NC);
+		break;
+	default:
+		attr = PTE_S2_MEMATTR(MT_S2_FWB_NORMAL);
+	}
+
+	for (offset = 0; offset < size; offset += map_size) {
+		/*
+		 * realm_map_ipa() enforces that the memory is writable,
+		 * so for now we permit both read and write.
+		 */
+		unsigned long desc = kvm_phys_to_pte(phys) | attr |
+				     KVM_PTE_LEAF_ATTR_LO_S2_S2AP_R |
+				     KVM_PTE_LEAF_ATTR_LO_S2_S2AP_W;
+		ret = rmi_rtt_map_unprotected(rd, ipa, map_level, desc);
+
+		if (RMI_RETURN_STATUS(ret) == RMI_ERROR_RTT) {
+			/* Create missing RTTs and retry */
+			int level = RMI_RETURN_INDEX(ret);
+
+			ret = realm_create_rtt_levels(realm, ipa, level,
+						      map_level, memcache);
+			if (ret)
+				return -ENXIO;
+
+			ret = rmi_rtt_map_unprotected(rd, ipa, map_level, desc);
+		}
+		/*
+		 * RMI_ERROR_RTT can be reported for two reasons: either the
+		 * RTT tables are not there, or there is an RTTE already
+		 * present for the address.  The above call to create RTTs
+		 * handles the first case, and in the second case this
+		 * indicates that another thread has already populated the RTTE
+		 * for us, so we can ignore the error and continue.
+		 */
+		if (ret && RMI_RETURN_STATUS(ret) != RMI_ERROR_RTT)
+			return -ENXIO;
+
+		ipa += map_size;
+		phys += map_size;
+	}
+
+	return 0;
+}
+
 static int populate_region_cb(struct kvm *kvm, gfn_t gfn, kvm_pfn_t pfn,
 			      struct page *src_page, void *opaque)
 {
