@@ -388,6 +388,8 @@ static bool kvm_realm_ext_allowed(long ext)
 	case KVM_CAP_ARM_PTRAUTH_GENERIC:
 	case KVM_CAP_ARM_RMI:
 		return true;
+	case KVM_CAP_ARM_PMU_V3:
+		return kvm_rmi_supports_pmu();
 	case KVM_CAP_ARM_SVE:
 		return kvm_rmi_supports_sve();
 	}

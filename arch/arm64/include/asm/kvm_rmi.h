@@ -88,6 +88,7 @@ void kvm_init_rmi(void);
 u32 kvm_realm_ipa_limit(void);
 
 bool kvm_rmi_supports_sve(void);
+bool kvm_rmi_supports_pmu(void);
 
 int kvm_init_realm_vm(struct kvm *kvm);
 int kvm_activate_realm(struct kvm *kvm);

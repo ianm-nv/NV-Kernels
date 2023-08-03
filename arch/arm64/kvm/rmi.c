@@ -38,6 +38,11 @@ bool kvm_rmi_supports_sve(void)
 	return rmi_has_feature(RMI_FEATURE_REGISTER_0_SVE);
 }
 
+bool kvm_rmi_supports_pmu(void)
+{
+	return rmi_has_feature(RMI_FEATURE_REGISTER_0_PMU);
+}
+
 static int rmi_check_version(void)
 {
 	struct arm_smccc_res res;
@@ -1429,6 +1434,9 @@ static int kvm_create_rec(struct kvm_vcpu *vcpu)
 	 * flag covers v0.2 and onwards.
 	 */
 	if (!vcpu_has_feature(vcpu, KVM_ARM_VCPU_PSCI_0_2))
+		return -EINVAL;
+
+	if (vcpu->kvm->arch.arm_pmu && !kvm_vcpu_has_pmu(vcpu))
 		return -EINVAL;
 
 	BUILD_BUG_ON(sizeof(*params) > PAGE_SIZE);
