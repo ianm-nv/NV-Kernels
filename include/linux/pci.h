@@ -547,6 +547,10 @@ struct pci_dev {
 #ifdef CONFIG_PCI_NPEM
 	struct npem	*npem;		/* Native PCIe Enclosure Management */
 #endif
+#ifdef CONFIG_PCI_IDE
+	struct pci_ide *ide;		/* Integriry and Data Encryption */
+#endif
+
 	u16		acs_cap;	/* ACS Capability offset */
 	u8		supported_speeds; /* Supported Link Speeds Vector */
 	phys_addr_t	rom;		/* Physical address if not from BAR */
