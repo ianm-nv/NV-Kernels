@@ -165,10 +165,15 @@ CONFIG_ULTRASOC_SMB                             note<'Required for Grace enablem
 
 # ---- Annotations without notes ----
 
+CONFIG_ACPI_MPAM                                policy<{'amd64': '-', 'arm64': 'y'}>
+CONFIG_ARCH_HAS_CPU_RESCTRL                     policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_ARCH_SUPPORTS_HUGE_PFNMAP                policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_ARCH_SUPPORTS_PMD_PFNMAP                 policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_ARCH_SUPPORTS_PUD_PFNMAP                 policy<{'amd64': 'y'}>
 CONFIG_ARM_SMMU_V3_IOMMUFD                      policy<{'arm64': 'y'}>
+CONFIG_ARM64_MPAM                               policy<{'amd64': '-', 'arm64': 'y'}>
+CONFIG_ARM64_MPAM_DRIVER                        policy<{'arm64': 'y'}>
+CONFIG_ARM_CPU_RESCTRL                          policy<{'amd64': '-', 'arm64': '-'}>
 CONFIG_AS_VERSION                               policy<{'amd64': '24200', 'arm64': '24200'}>
 CONFIG_AX88796B_RUST_PHY                        policy<{'amd64': '-'}>
 CONFIG_BINDGEN_VERSION_TEXT                     policy<{'amd64': '-'}>
@@ -182,6 +187,7 @@ CONFIG_GCC_ASM_GOTO_OUTPUT_BROKEN               policy<{'amd64': '-', 'arm64': '
 CONFIG_GCC_VERSION                              policy<{'amd64': '130300', 'arm64': '130300'}>
 CONFIG_IOMMUFD_DRIVER_CORE                      policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_IOMMUFD_VFIO_CONTAINER                   policy<{'arm64': 'y'}>
+CONFIG_CGROUP_RESCTRL                           policy<{'amd64': 'n', 'arm64': 'n'}>
 CONFIG_GCC_ASM_GOTO_OUTPUT_BROKEN               policy<{'amd64': '-', 'arm64': '-'}>
 CONFIG_GCC_VERSION                              policy<{'amd64': '130300', 'arm64': '130300'}>
 CONFIG_IOMMUFD_DRIVER_CORE                      policy<{'amd64': 'y', 'arm64': 'y'}>
@@ -190,7 +196,13 @@ CONFIG_LD_VERSION                               policy<{'amd64': '24200', 'arm64
 CONFIG_NVGRACE_GPU_VFIO_PCI                     policy<{'amd64': '-', 'arm64': 'm'}>
 CONFIG_PAHOLE_VERSION                           policy<{'amd64': '125', 'arm64': '125'}>
 CONFIG_R8127                                    policy<{'amd64': 'n', 'arm64': 'm'}>
+CONFIG_PROC_CPU_RESCTRL                         policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_RELR                                     policy<{'arm64': '-'}>
+CONFIG_RESCTRL_FS                               policy<{'amd64': 'y', 'arm64': 'y'}>
+CONFIG_RESCTRL_FS_PSEUDO_LOCK                   policy<{'amd64': 'y', 'arm64': '-'}>
+CONFIG_RESCTRL_IOMMU                            policy<{'amd64': '-', 'arm64': 'y'}>
+CONFIG_RESCTRL_PMU                              policy<{'amd64': 'n', 'arm64': 'y'}>
+CONFIG_RESCTRL_RMID_DEPENDS_ON_CLOSID           policy<{'amd64': '-', 'arm64': 'y'}>
 CONFIG_RUST                                     policy<{'amd64': '-'}>
 CONFIG_RUSTC_VERSION_TEXT                       policy<{'amd64': '-'}>
 CONFIG_RUST_BUILD_ASSERT_ALLOW                  policy<{'amd64': '-'}>
