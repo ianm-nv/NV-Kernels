@@ -689,17 +689,17 @@ static inline bool kvm_is_realm(struct kvm *kvm)
 	return false;
 }
 
-static inline enum realm_state kvm_realm_state(struct kvm *kvm)
-{
-	return READ_ONCE(kvm->arch.realm.state);
-}
-
 static inline void *kvm_get_rd(struct kvm *kvm)
 {
 	if (!kvm_is_realm(kvm))
-		return NULL;
+		return 0;
 
 	return kvm->arch.realm.rd;
+}
+
+static inline enum realm_state kvm_realm_state(struct kvm *kvm)
+{
+	return READ_ONCE(kvm->arch.realm.state);
 }
 
 static inline bool kvm_realm_is_created(struct kvm *kvm)

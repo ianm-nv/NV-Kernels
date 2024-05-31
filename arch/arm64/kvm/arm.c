@@ -72,6 +72,7 @@ static enum kvm_wfx_trap_policy kvm_wfi_trap_policy __read_mostly = KVM_WFX_NOTR
 static enum kvm_wfx_trap_policy kvm_wfe_trap_policy __read_mostly = KVM_WFX_NOTRAP_SINGLE_TASK;
 
 DEFINE_STATIC_KEY_FALSE(kvm_rme_is_available);
+EXPORT_SYMBOL_GPL(kvm_rme_is_available);
 
 DECLARE_KVM_HYP_PER_CPU(unsigned long, kvm_hyp_vector);
 
