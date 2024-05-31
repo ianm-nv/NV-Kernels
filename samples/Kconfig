@@ -130,7 +130,7 @@ config SAMPLE_RPMSG_CLIENT
 
 config SAMPLE_ARM_CCA_TEST_SUITE
 	tristate "Arm CCA Realm World test suite"
-	default y
+	select RMEDA_GUEST
 	help
 	  Provides kernel module interface to test the ARM CCA architecture.
 
