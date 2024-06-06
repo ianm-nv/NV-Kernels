@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
-/*
- * Copyright (C) 2023 ARM Ltd.
- */
+// SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+// SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/kvm_host.h>
 
@@ -1939,6 +1938,10 @@ int kvm_init_realm_vm(struct kvm *kvm)
 
 	if (!kvm->arch.realm.params)
 		return -ENOMEM;
+
+	INIT_LIST_HEAD(&kvm->arch.realm.io_cbs_list);
+	mutex_init(&kvm->arch.realm.io_cbs_lock);
+
 	return 0;
 }
 
@@ -1967,4 +1970,77 @@ void kvm_init_rme(void)
 	}
 
 	static_branch_enable(&kvm_rme_is_available);
+}
+
+int kvm_realm_register_io_callback(struct kvm *kvm,
+				   phys_addr_t vdev_phys,
+				   int (*__cb)(struct kvm *kvm,
+					       unsigned long io_action,
+					       void *priv),
+				   void *priv)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_io_cb *cb;
+	int ret = 0;
+
+	mutex_lock(&realm->io_cbs_lock);
+	list_for_each_entry(cb, &realm->io_cbs_list, list) {
+		if (cb->vdev_phys == vdev_phys) {
+			ret = -EEXIST;
+			goto out_unlock;
+		}
+	}
+
+	cb = kzalloc(sizeof(*cb), GFP_KERNEL);
+	if (!cb) {
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
+
+	INIT_LIST_HEAD(&cb->list);
+	cb->vdev_phys = vdev_phys;
+	cb->cb = __cb;
+	cb->priv = priv;
+	list_add_tail(&cb->list, &realm->io_cbs_list);
+
+out_unlock:
+	mutex_unlock(&realm->io_cbs_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_realm_register_io_callback);
+
+void kvm_realm_unregister_io_callback(struct kvm *kvm,
+				      phys_addr_t vdev_phys)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_io_cb *cb;
+
+	mutex_lock(&realm->io_cbs_lock);
+	list_for_each_entry(cb, &realm->io_cbs_list, list) {
+		if (cb->vdev_phys == vdev_phys) {
+			list_del(&cb->list);
+			break;
+		}
+	}
+	mutex_unlock(&realm->io_cbs_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_realm_unregister_io_callback);
+
+int kvm_realm_invoke_io_callback(struct kvm *kvm,
+				 phys_addr_t vdev_phys,
+				 unsigned long io_action)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_io_cb *cb;
+	int ret = -ENOENT;
+
+	mutex_lock(&realm->io_cbs_lock);
+	list_for_each_entry(cb, &realm->io_cbs_list, list) {
+		if (cb->vdev_phys == vdev_phys) {
+			ret = cb->cb(kvm, io_action, cb->priv);
+			break;
+		}
+	}
+	mutex_unlock(&realm->io_cbs_lock);
+	return ret;
 }

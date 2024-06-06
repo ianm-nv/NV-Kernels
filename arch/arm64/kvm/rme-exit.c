@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*
- * Copyright (C) 2023 ARM Ltd.
- */
+// SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+// SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 
 #include <linux/kvm_host.h>
 #include <kvm/arm_hypercalls.h>
@@ -141,6 +140,16 @@ static void update_arch_timer_irq_lines(struct kvm_vcpu *vcpu)
 	kvm_realm_timers_update(vcpu);
 }
 
+static int rec_exit_dev_comm(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct realm_rec *rec = &vcpu->arch.rec;
+
+	return kvm_realm_invoke_io_callback(kvm,
+					    rec->run->exit.vdev,
+					    rec->run->exit.vdev_action);
+}
+
 /*
  * Return > 0 to return to guest, < 0 on error, 0 (and set exit_reason) on
  * proper exit to userspace.
@@ -198,6 +207,8 @@ int handle_rec_exit(struct kvm_vcpu *vcpu, int rec_run_ret)
 		return rec_exit_ripas_change(vcpu);
 	case RMI_EXIT_HOST_CALL:
 		return rec_exit_host_call(vcpu);
+	case RMI_EXIT_DEV_COMM:
+		return rec_exit_dev_comm(vcpu);
 	}
 
 	kvm_pr_unimpl("Unsupported exit reason: %u\n",
