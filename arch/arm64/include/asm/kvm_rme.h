@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Copyright (C) 2023 ARM Ltd.
+/* SPDX-License-Identifier: GPL-2.0
+ * SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+ * SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef __ASM_KVM_RME_H
@@ -48,12 +48,31 @@ enum realm_state {
 /**
  * struct realm - Additional per VM data for a Realm
  *
+ * @list: The list of attached drivers
+ * @vdev_phys: Physical address of the VDEV granule
+ * @priv: Private data for the callack
+ * @cb: Callback to be called when RMI_EXIT_DEV_COMM value is invoked with the
+ *      provided vdev_phys device id.
+ */
+struct realm_io_cb {
+	struct list_head list;
+	phys_addr_t vdev_phys;
+	void *priv;
+	int (*cb)(struct kvm *kvm,
+		  unsigned long io_action,
+		  void *priv);
+};
+
+/**
+ * struct realm - Additional per VM data for a Realm
+ *
  * @state: The lifetime state machine for the realm
  * @rd: Kernel mapping of the Realm Descriptor (RD)
  * @params: Parameters for the RMI_REALM_CREATE command
  * @num_aux: The number of auxiliary pages required by the RMM
  * @vmid: VMID to be used by the RMM for the realm
  * @ia_bits: Number of valid Input Address bits in the IPA
+ * @io_cbs: IO callbacks to be called when realm invokes RMI_EXIT_DEV_COMM
  */
 struct realm {
 	enum realm_state state;
@@ -64,6 +83,8 @@ struct realm {
 	unsigned long num_aux;
 	unsigned int vmid;
 	unsigned int ia_bits;
+	struct list_head io_cbs_list;
+	struct mutex io_cbs_lock;
 };
 
 /**
@@ -125,6 +146,17 @@ int realm_map_non_secure(struct realm *realm,
 int realm_psci_complete(struct kvm_vcpu *source,
 			struct kvm_vcpu *target,
 			unsigned long status);
+int kvm_realm_register_io_callback(struct kvm *kvm,
+				   phys_addr_t vdev_phys,
+				   int (*cb)(struct kvm *kvm,
+					     unsigned long io_action,
+					     void *priv),
+				   void *priv);
+void kvm_realm_unregister_io_callback(struct kvm *kvm,
+				      phys_addr_t vdev_phys);
+int kvm_realm_invoke_io_callback(struct kvm *kvm,
+				 phys_addr_t vdev_phys,
+				 unsigned long io_action);
 
 static inline bool kvm_realm_is_private_address(struct realm *realm,
 						unsigned long addr)
