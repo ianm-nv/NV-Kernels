@@ -6,6 +6,7 @@
 #include <kvm/arm_hypercalls.h>
 #include <kvm/arm_psci.h>
 
+#include <asm/rmi_cmds.h>
 #include <asm/rmi_smc.h>
 #include <asm/kvm_emulate.h>
 #include <asm/kvm_rme.h>
@@ -94,6 +95,9 @@ static int rec_exit_ripas_change(struct kvm_vcpu *vcpu)
 	unsigned long base = rec->run->exit.ripas_base;
 	unsigned long top = rec->run->exit.ripas_top;
 	unsigned long ripas = rec->run->exit.ripas_value;
+	phys_addr_t rd = virt_to_phys(realm->rd);
+	struct rtt_entry rtte;
+	int ret;
 
 	if (!kvm_realm_is_private_address(realm, base) ||
 	    !kvm_realm_is_private_address(realm, top - 1)) {
@@ -102,6 +106,16 @@ static int rec_exit_ripas_change(struct kvm_vcpu *vcpu)
 		/* Set RMI_REJECT bit */
 		rec->run->enter.flags = REC_ENTER_FLAG_RIPAS_RESPONSE;
 		return -EINVAL;
+	}
+
+	/*
+	 * Don't inform VMM of ASSIGNED_DEV->EMPTY transitions. Device memory
+	 * is handled within kernel when returning to the realm.
+	 */
+	if (ripas == RMI_EMPTY) {
+		ret = rmi_rtt_read_entry(rd, base, 3, &rtte);
+		if (ret == 0 && rtte.state == RMI_ASSIGNED_DEV)
+			return 1;
 	}
 
 	/* Exit to VMM, the actual RIPAS change is done on next entry */
@@ -203,6 +217,13 @@ int handle_rec_exit(struct kvm_vcpu *vcpu, int rec_run_ret)
 		return 1;
 	case RMI_EXIT_PSCI:
 		return rec_exit_psci(vcpu);
+	case RMI_EXIT_DEV_MEM_MAP:
+		/*
+		 * No need to do anything: Device memory mapping is
+		 * handled inside the kernel before returning to the
+		 * realm.
+		 */
+		return 1;
 	case RMI_EXIT_RIPAS_CHANGE:
 		return rec_exit_ripas_change(vcpu);
 	case RMI_EXIT_HOST_CALL:
