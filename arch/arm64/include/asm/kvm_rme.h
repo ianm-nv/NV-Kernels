@@ -66,6 +66,26 @@ struct realm_io_cb {
 /**
  * struct realm - Additional per VM data for a Realm
  *
+ * @list: The list of attached drivers
+ * @hsi_id: Host call identifier
+ * @sub_id: Sub-ID for host call (e.g., session id, device id, etc.)
+ * @priv: Private data for the callack
+ * @cb: Callback to be called when RMI_EXIT_HODY_VSLL value is invoked with the
+ *      provided hsi_id.
+ */
+struct realm_hsi_cb {
+	struct list_head list;
+	unsigned long hsi_id;
+	unsigned long sub_id;
+	void *priv;
+	int (*cb)(struct kvm_vcpu *vcpu,
+		  unsigned long hsi,
+		  void *priv);
+};
+
+/**
+ * struct realm - Additional per VM data for a Realm
+ *
  * @state: The lifetime state machine for the realm
  * @rd: Kernel mapping of the Realm Descriptor (RD)
  * @params: Parameters for the RMI_REALM_CREATE command
@@ -92,6 +112,9 @@ struct realm {
 	} mec_policy;
 	struct list_head io_cbs_list;
 	struct mutex io_cbs_lock;
+
+	struct list_head hsi_cbs_list;
+	struct mutex hsi_cbs_lock;
 };
 
 /**
@@ -164,6 +187,21 @@ void kvm_realm_unregister_io_callback(struct kvm *kvm,
 int kvm_realm_invoke_io_callback(struct kvm *kvm,
 				 phys_addr_t vdev_phys,
 				 unsigned long io_action);
+int kvm_realm_register_hsi_callback(struct kvm *kvm,
+				   unsigned long hsi_id,
+				   unsigned long sub_id,
+				   int (*__cb)(struct kvm_vcpu *vcpu,
+					       unsigned long hsi_id,
+					       void *priv),
+				   void *priv);
+void kvm_realm_unregister_hsi_callback(struct kvm *kvm,
+				       unsigned long hsi_id,
+				       unsigned long sub_id);
+int kvm_realm_invoke_hsi_callback(struct kvm_vcpu *vcpu,
+				  unsigned long hsi_id,
+				  unsigned long sub_id);
+bool kvm_realm_is_hsi(struct kvm_vcpu *vcpu, unsigned long hsi_id,
+		      unsigned long sub_id);
 
 static inline bool kvm_realm_is_private_address(struct realm *realm,
 						unsigned long addr)

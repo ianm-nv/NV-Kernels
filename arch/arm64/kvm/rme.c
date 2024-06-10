@@ -1942,6 +1942,9 @@ int kvm_init_realm_vm(struct kvm *kvm)
 	INIT_LIST_HEAD(&kvm->arch.realm.io_cbs_list);
 	mutex_init(&kvm->arch.realm.io_cbs_lock);
 
+	INIT_LIST_HEAD(&kvm->arch.realm.hsi_cbs_list);
+	mutex_init(&kvm->arch.realm.hsi_cbs_lock);
+
 	return 0;
 }
 
@@ -2042,5 +2045,116 @@ int kvm_realm_invoke_io_callback(struct kvm *kvm,
 		}
 	}
 	mutex_unlock(&realm->io_cbs_lock);
+	return ret;
+}
+
+int kvm_realm_register_hsi_callback(struct kvm *kvm,
+				   unsigned long hsi_id,
+				   unsigned long sub_id,
+				   int (*__cb)(struct kvm_vcpu *vcpu,
+					       unsigned long hsi_id,
+					       void *priv),
+				   void *priv)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_hsi_cb *cb;
+	int ret = 0;
+
+	mutex_lock(&realm->hsi_cbs_lock);
+	list_for_each_entry(cb, &realm->hsi_cbs_list, list) {
+		if ((cb->hsi_id == hsi_id) &&
+		    (cb->sub_id == sub_id)) {
+			ret = -EEXIST;
+			goto out_unlock;
+		}
+	}
+
+	cb = kzalloc(sizeof(*cb), GFP_KERNEL);
+	if (!cb) {
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
+
+	INIT_LIST_HEAD(&cb->list);
+	cb->hsi_id = hsi_id;
+	cb->sub_id = sub_id;
+	cb->cb = __cb;
+	cb->priv = priv;
+	list_add_tail(&cb->list, &realm->hsi_cbs_list);
+
+	ret = mtree_insert_range(&kvm->arch.smccc_filter,
+				 hsi_id, hsi_id,
+				 xa_mk_value(KVM_SMCCC_FILTER_HANDLE),
+				 GFP_KERNEL_ACCOUNT);
+
+	/* Ignore errors from filter if it has already been set up */
+	ret = (ret == -EEXIST) ? 0 : ret;
+	WARN_ON_ONCE(ret);
+
+out_unlock:
+	mutex_unlock(&realm->hsi_cbs_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_realm_register_hsi_callback);
+
+void kvm_realm_unregister_hsi_callback(struct kvm *kvm,
+				       unsigned long hsi_id,
+				       unsigned long sub_id)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_hsi_cb *cb;
+
+	mutex_lock(&realm->hsi_cbs_lock);
+	list_for_each_entry(cb, &realm->hsi_cbs_list, list) {
+		if (cb->hsi_id == hsi_id && cb->sub_id == sub_id) {
+			list_del(&cb->list);
+			kfree(cb);
+			break;
+		}
+	}
+	mutex_unlock(&realm->hsi_cbs_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_realm_unregister_hsi_callback);
+
+int kvm_realm_invoke_hsi_callback(struct kvm_vcpu *vcpu,
+				  unsigned long hsi_id,
+				  unsigned long sub_id)
+{
+	struct realm *realm = &vcpu->kvm->arch.realm;
+	struct realm_hsi_cb *cb;
+	int ret = -ENOENT;
+
+	if (!kvm_is_realm(vcpu->kvm))
+		return -ENOENT;
+
+	mutex_lock(&realm->hsi_cbs_lock);
+	list_for_each_entry(cb, &realm->hsi_cbs_list, list) {
+		if (cb->hsi_id == hsi_id && cb->sub_id == sub_id) {
+			ret = cb->cb(vcpu, hsi_id, cb->priv);
+			break;
+		}
+	}
+	mutex_unlock(&realm->hsi_cbs_lock);
+	return ret;
+}
+
+bool kvm_realm_is_hsi(struct kvm_vcpu *vcpu, unsigned long hsi_id,
+		      unsigned long sub_id)
+{
+	struct realm *realm = &vcpu->kvm->arch.realm;
+	struct realm_hsi_cb *cb;
+	int ret = false;
+
+	if (!kvm_is_realm(vcpu->kvm))
+		return false;
+
+	mutex_lock(&realm->hsi_cbs_lock);
+	list_for_each_entry(cb, &realm->hsi_cbs_list, list) {
+		if (cb->hsi_id == hsi_id && cb->sub_id == sub_id) {
+			ret = true;
+			break;
+		}
+	}
+	mutex_unlock(&realm->hsi_cbs_lock);
 	return ret;
 }
