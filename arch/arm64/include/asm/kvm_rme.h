@@ -168,6 +168,11 @@ int realm_map_protected(struct realm *realm,
 			kvm_pfn_t pfn,
 			unsigned long size,
 			struct kvm_mmu_memory_cache *memcache);
+int realm_map_dev(struct realm *realm,
+		  unsigned long base_ipa,
+		  struct page *dst_page,
+		  unsigned long map_size,
+		  struct kvm_mmu_memory_cache *memcache);
 int realm_map_non_secure(struct realm *realm,
 			 unsigned long ipa,
 			 kvm_pfn_t pfn,

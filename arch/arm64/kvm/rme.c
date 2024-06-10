@@ -492,11 +492,21 @@ static int realm_destroy_private_granule(struct realm *realm,
 {
 	unsigned long rd = virt_to_phys(realm->rd);
 	unsigned long rtt_addr;
+	struct rtt_entry rtte;
 	phys_addr_t rtt;
 	int ret;
 
 retry:
-	ret = rmi_data_destroy(rd, ipa, &rtt_addr, next_addr);
+	ret = rmi_rtt_read_entry(rd, ipa, RMM_RTT_MAX_LEVEL, &rtte);
+	if (WARN_ON(ret))
+		return -ENXIO;
+
+	if (rtte.state == RMI_ASSIGNED_DEV)
+		ret = rmi_dev_mem_unmap(rd, ipa, 3,
+					&rtt_addr, next_addr);
+	else
+		ret = rmi_data_destroy(rd, ipa, &rtt_addr, next_addr);
+
 	if (RMI_RETURN_STATUS(ret) == RMI_ERROR_RTT) {
 		if (*next_addr > ipa)
 			return 0; /* UNASSIGNED */
@@ -523,7 +533,9 @@ retry:
 	if (WARN_ON(ret))
 		return -ENXIO;
 
-	*out_rtt = rtt_addr;
+	/* Device memory cannot be freed. Don't return a page for release */
+	if (rtte.state != RMI_ASSIGNED_DEV)
+		*out_rtt = rtt_addr;
 
 	return 0;
 }
@@ -956,7 +968,6 @@ int realm_map_protected(struct realm *realm,
 		}
 
 		ret = rmi_data_create_unknown(rd, phys, ipa);
-
 		if (RMI_RETURN_STATUS(ret) == RMI_ERROR_RTT) {
 			/* Create missing RTTs and retry */
 			int level = RMI_RETURN_INDEX(ret);
@@ -1005,6 +1016,119 @@ err:
 			/* Page can't be returned to NS world so is lost */
 			get_page(phys_to_page(phys));
 		}
+	}
+	return -ENXIO;
+}
+
+int realm_map_dev(struct realm *realm,
+		  unsigned long base_ipa,
+		  struct page *dst_page,
+		  unsigned long map_size,
+		  struct kvm_mmu_memory_cache *memcache)
+
+{
+	phys_addr_t dst_phys = page_to_phys(dst_page);
+	phys_addr_t rd = virt_to_phys(realm->rd);
+	unsigned long phys = dst_phys;
+	unsigned long ipa = base_ipa;
+	unsigned long size;
+	int map_level;
+	int ret = 0;
+
+	phys += ipa & ~PAGE_MASK;
+
+	if (WARN_ON(!IS_ALIGNED(ipa, map_size)))
+		return -EINVAL;
+
+	switch (map_size) {
+	case RMM_PAGE_SIZE:
+		map_level = 3;
+		break;
+	case RMM_L2_BLOCK_SIZE:
+		map_level = 2;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (map_level < RMM_RTT_MAX_LEVEL) {
+		/*
+		 * A temporary RTT is needed during the map, precreate it,
+		 * however if there is an error (e.g. missing parent tables)
+		 * this will be handled below.
+		 */
+		realm_create_rtt_levels(realm, ipa, map_level,
+					RMM_RTT_MAX_LEVEL, memcache);
+	}
+
+	for (size = 0; size < map_size; size += RMM_PAGE_SIZE) {
+		ret = rmi_granule_delegate(phys);
+		if (ret) {
+			struct rtt_entry rtt;
+
+			/*
+			 * It's possible we raced with another VCPU on the same
+			 * fault. If the entry exists and matches then exit
+			 * early and assume the other VCPU will handle the
+			 * mapping.
+			 */
+			if (rmi_rtt_read_entry(rd, ipa, RMM_RTT_MAX_LEVEL, &rtt))
+				goto err;
+
+			// FIXME: For a block mapping this could race at level
+			// 2 or 3...
+			if (WARN_ON((rtt.walk_level != RMM_RTT_MAX_LEVEL ||
+				     rtt.state != RMI_ASSIGNED_DEV ||
+				     rtt.desc != phys))) {
+				goto err;
+			}
+
+			return 0;
+		}
+
+		ret = rmi_dev_mem_map(rd, ipa, map_level, phys);
+		if (RMI_RETURN_STATUS(ret) == RMI_ERROR_RTT) {
+			/* Create missing RTTs and retry */
+			int level = RMI_RETURN_INDEX(ret);
+
+			ret = realm_create_rtt_levels(realm, ipa, level,
+						      RMM_RTT_MAX_LEVEL,
+						      memcache);
+			WARN_ON(ret);
+			if (ret)
+				goto err_undelegate;
+
+			ret = rmi_dev_mem_map(rd, ipa, map_level, phys);
+		}
+		WARN_ON(ret);
+
+		if (ret)
+			goto err_undelegate;
+
+		phys += RMM_PAGE_SIZE;
+		ipa += RMM_PAGE_SIZE;
+	}
+
+	if (map_size == RMM_L2_BLOCK_SIZE)
+		ret = fold_rtt(realm, base_ipa, map_level);
+	if (WARN_ON(ret))
+		goto err;
+
+	return 0;
+
+err_undelegate:
+	WARN_ON(rmi_granule_undelegate(phys));
+err:
+	while (size > 0) {
+		unsigned long data, top;
+
+		phys -= RMM_PAGE_SIZE;
+		size -= RMM_PAGE_SIZE;
+		ipa -= RMM_PAGE_SIZE;
+
+		WARN_ON(rmi_dev_mem_unmap(rd, ipa, 3,
+					  &data, &top));
+		WARN_ON(rmi_granule_undelegate(phys));
 	}
 	return -ENXIO;
 }
@@ -1195,6 +1319,7 @@ static int kvm_populate_realm(struct kvm *kvm,
 enum ripas_action {
 	RIPAS_INIT,
 	RIPAS_SET,
+	DEV_MEM_VALIDATE,
 };
 
 static int ripas_change(struct kvm *kvm,
@@ -1214,7 +1339,7 @@ static int ripas_change(struct kvm *kvm,
 		rec_phys = virt_to_phys(vcpu->arch.rec.rec_page);
 		memcache = &vcpu->arch.mmu_page_cache;
 
-		WARN_ON(action != RIPAS_SET);
+		WARN_ON(action != RIPAS_SET && action != DEV_MEM_VALIDATE);
 	} else {
 		WARN_ON(action != RIPAS_INIT);
 	}
@@ -1227,8 +1352,16 @@ static int ripas_change(struct kvm *kvm,
 			ret = rmi_rtt_init_ripas(rd_phys, ipa, end, &next);
 			break;
 		case RIPAS_SET:
-			ret = rmi_rtt_set_ripas(rd_phys, rec_phys, ipa, end,
+			ret = rmi_rtt_set_ripas(rd_phys,
+						rec_phys,
+						ipa, end,
 						&next);
+			break;
+		case DEV_MEM_VALIDATE:
+			ret = rmi_rtt_dev_mem_validate(rd_phys,
+						       rec_phys,
+						       ipa, end,
+						       &next);
 			break;
 		}
 
@@ -1269,7 +1402,9 @@ static int realm_set_ipa_state(struct kvm_vcpu *vcpu,
 			       unsigned long *top_ipa)
 {
 	struct kvm *kvm = vcpu->kvm;
-	int ret = ripas_change(kvm, vcpu, start, end, RIPAS_SET, top_ipa);
+	enum ripas_action action = (ripas == RMI_DEV) ?
+				   DEV_MEM_VALIDATE : RIPAS_SET;
+	int ret = ripas_change(kvm, vcpu, start, end, action, top_ipa);
 
 	if (ripas == RMI_EMPTY && *top_ipa != start)
 		realm_unmap_private_range(kvm, start, *top_ipa, false);
@@ -1680,6 +1815,132 @@ void kvm_destroy_realm(struct kvm *kvm)
 	kvm_free_stage2_pgd(&kvm->arch.mmu);
 }
 
+static int kvm_map_dev_mem(struct kvm_vcpu *vcpu)
+{
+	struct kvm_mmu_memory_cache *memcache = &vcpu->arch.mmu_page_cache;
+	struct kvm *kvm = vcpu->kvm;
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_rec *rec = &vcpu->arch.rec;
+	unsigned long base = rec->run->exit.dev_mem_base;
+	unsigned long top = rec->run->exit.dev_mem_top;
+	struct kvm_memory_slot *memslot;
+	unsigned long hva;
+	unsigned long ipa;
+	bool writable;
+	struct page *page;
+	kvm_pfn_t pfn;
+	gpa_t gpa;
+	gfn_t gfn;
+	int ret;
+
+	/*
+	 * VMM is not aware of device memory. Therefore,
+	 * there might be mappings if the realm accessed
+	 * the device memory via unprotected IPA. Remove
+	 * them.
+	 */
+	kvm_realm_unmap_range(kvm, base, top - base, false, false);
+
+	for (ipa = base; ipa < top; ipa += RMM_PAGE_SIZE) {
+		gpa = kvm_gpa_from_fault(kvm, ipa);
+		gfn = gpa >> PAGE_SHIFT;
+		memslot = gfn_to_memslot(kvm, gfn);
+		hva = gfn_to_hva_memslot_prot(memslot, gfn, &writable);
+
+		if (kvm_is_error_hva(hva)) {
+			ret = -EINVAL;
+			goto exit_unmap;
+		}
+
+		pfn = __kvm_faultin_pfn(memslot, gfn, FOLL_WRITE,
+					&writable, &page);
+		if (pfn == KVM_PFN_ERR_HWPOISON || pfn_is_map_memory(pfn)) {
+			ret = -EINVAL;
+			goto exit_unmap;
+		}
+
+		kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_page_cache,
+					   kvm_mmu_cache_min_pages(vcpu->arch.hw_mmu));
+
+		ret = realm_map_dev(realm, ipa,
+				   pfn_to_page(pfn),
+				   RMM_PAGE_SIZE,
+				   memcache);
+		if (ret)
+			goto exit_unmap;
+	}
+
+	return 0;
+
+exit_unmap:
+	for (ipa -= RMM_PAGE_SIZE; ipa > base; ipa -= RMM_PAGE_SIZE)
+		kvm_realm_unmap_range(kvm, ipa, RMM_PAGE_SIZE, true, false);
+
+	return ret;
+}
+
+static void kvm_unmap_dev_mem(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct realm_rec *rec = &vcpu->arch.rec;
+	unsigned long base = rec->run->exit.dev_mem_base;
+	unsigned long top = rec->run->exit.dev_mem_top;
+
+	kvm_realm_unmap_range(kvm, base, top - base, true, false);
+}
+
+static void kvm_complete_dev_mem_map(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct realm_rec *rec = &vcpu->arch.rec;
+	unsigned long base = rec->run->exit.dev_mem_base;
+	unsigned long top = rec->run->exit.dev_mem_top;
+	unsigned long top_ipa;
+	int ret;
+
+	/*
+	 * This function can be called multiple times before entering
+	 * the rec. There are two cases: Mappings were successfully
+	 * established, and the loop below will just exit. If mappings
+	 * were unsuccessful, DEV_MEM_RESPONSE flag is set, and
+	 * the function should be skipped. Otherwise the code would
+	 * try mapping again - followed by unmapping.
+	 */
+	if (rec->run->enter.flags & REC_ENTER_FLAG_DEV_MEM_RESPONSE)
+		return;
+
+	/* First, delegate the granules and create the mappings */
+	ret = kvm_map_dev_mem(vcpu);
+	if (ret)
+		goto err_out;
+
+	/* Second, update the RIPAS state to DEV */
+	do {
+		kvm_mmu_topup_memory_cache(&vcpu->arch.mmu_page_cache,
+					   kvm_mmu_cache_min_pages(vcpu->arch.hw_mmu));
+		write_lock(&kvm->mmu_lock);
+		ret = realm_set_ipa_state(vcpu, base, top, RMI_DEV, &top_ipa);
+		write_unlock(&kvm->mmu_lock);
+
+		if (ret && ret != -ENOMEM)
+			goto err_unmap;
+
+		base = top_ipa;
+	} while (base < top);
+
+	rec->run->exit.dev_mem_base = base;
+
+	return;
+
+err_unmap:
+	kvm_unmap_dev_mem(vcpu);
+err_out:
+	WARN(true, "Unable to satisfy RIPAS_CHANGE for %#lx - %#lx, ripas: %#x\n",
+	     base, top, RMI_DEV);
+
+	rec->run->enter.flags |= REC_ENTER_FLAG_DEV_MEM_RESPONSE;
+}
+
 static void kvm_complete_ripas_change(struct kvm_vcpu *vcpu)
 {
 	struct kvm *kvm = vcpu->kvm;
@@ -1732,6 +1993,9 @@ int kvm_rec_pre_enter(struct kvm_vcpu *vcpu)
 	case RMI_EXIT_PSCI:
 		for (int i = 0; i < REC_RUN_GPRS; i++)
 			rec->run->enter.gprs[i] = vcpu_get_reg(vcpu, i);
+		break;
+	case RMI_EXIT_DEV_MEM_MAP:
+		kvm_complete_dev_mem_map(vcpu);
 		break;
 	case RMI_EXIT_RIPAS_CHANGE:
 		kvm_complete_ripas_change(vcpu);
