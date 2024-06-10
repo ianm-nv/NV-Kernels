@@ -237,7 +237,8 @@ static u8 kvm_smccc_get_action(struct kvm_vcpu *vcpu, u32 func_id)
 		return action;
 
 	if (kvm_smccc_test_fw_bmap(vcpu, func_id) ||
-	    kvm_smccc_default_allowed(func_id))
+	    kvm_smccc_default_allowed(func_id) ||
+	    kvm_realm_is_hsi(vcpu, func_id, smccc_get_arg1(vcpu)))
 		return KVM_SMCCC_FILTER_HANDLE;
 
 	return KVM_SMCCC_FILTER_DENY;
@@ -376,8 +377,13 @@ int kvm_smccc_call_handler(struct kvm_vcpu *vcpu)
 	case ARM_SMCCC_TRNG_RND32:
 	case ARM_SMCCC_TRNG_RND64:
 		return kvm_trng_call(vcpu);
-	default:
-		return kvm_psci_call(vcpu);
+	default: {
+		int ret = kvm_realm_invoke_hsi_callback(vcpu, func_id,
+							smccc_get_arg1(vcpu));
+		if (ret == -ENOENT)
+			return kvm_psci_call(vcpu);
+		return ret;
+	}
 	}
 
 out:
