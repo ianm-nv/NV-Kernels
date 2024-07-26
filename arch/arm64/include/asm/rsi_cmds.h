@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
-/*
- * Copyright (C) 2023 ARM Ltd.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+ * SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef __ASM_RSI_CMDS_H
@@ -159,4 +159,134 @@ static inline unsigned long rsi_attestation_token_continue(phys_addr_t granule,
 	return res.a0;
 }
 
-#endif /* __ASM_RSI_CMDS_H */
+static inline unsigned long rsi_rdev_continue(unsigned long dev_id,
+					      unsigned long inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_CONTINUE,
+		      dev_id, inst_id, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_get_info(unsigned long dev_id,
+					      unsigned long inst_id,
+					      unsigned long addr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_GET_INFO,
+		      dev_id, inst_id, addr, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_get_instance_id(unsigned long dev_id,
+						     unsigned long *inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_GET_INSTANCE_ID,
+		      dev_id, 0, 0, 0, 0, 0, 0, &res);
+
+	*inst_id = res.a1;
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_get_interface_report(unsigned long dev_id,
+							  unsigned long inst_id,
+							  unsigned long version_max,
+							  unsigned long *version)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_GET_INTERFACE_REPORT,
+		      dev_id, inst_id, version_max, 0, 0, 0, 0,
+		      &res);
+
+	*version = res.a1;
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_get_measurements(unsigned long dev_id,
+						      unsigned long inst_id,
+						      unsigned long params_addr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_GET_MEASUREMENTS,
+		      dev_id, inst_id, params_addr, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_get_state(unsigned long dev_id,
+					       unsigned long inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_GET_STATE,
+		      dev_id, inst_id, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_lock(unsigned long dev_id,
+					   unsigned long inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_LOCK,
+		      dev_id, inst_id, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_start(unsigned long dev_id,
+					   unsigned long inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_START,
+		      dev_id, inst_id, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_stop(unsigned long dev_id,
+					  unsigned long inst_id)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_STOP,
+		      dev_id, inst_id, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_rdev_validate_mapping(unsigned long dev_id,
+						      unsigned long inst_id,
+						      phys_addr_t start,
+						      phys_addr_t end,
+						      phys_addr_t dev_pa,
+						      unsigned long flags)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_RDEV_VALIDATE_MAPPING, dev_id, inst_id,
+		      start, end, dev_pa, flags, 0, &res);
+
+	return res.a0;
+}
+
+static inline unsigned long rsi_host_call(phys_addr_t addr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_smc(SMC_RSI_HOST_CALL, addr, 0, 0, 0, 0, 0, 0, &res);
+
+	return res.a0;
+}
+
+#endif
