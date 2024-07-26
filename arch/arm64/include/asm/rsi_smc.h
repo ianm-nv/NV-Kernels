@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0-only */
-/*
- * Copyright (C) 2023 ARM Ltd.
+/* SPDX-License-Identifier: GPL-2.0-only
+ * SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+ * SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef __ASM_RSI_SMC_H_
@@ -42,6 +42,10 @@
 						   ARM_SMCCC_SMC_64,         \
 						   ARM_SMCCC_OWNER_STANDARD, \
 						   n)
+
+/* RsiHashAlgorithm */
+#define RSI_HASH_SHA_256		0
+#define RSI_HASH_SHA_512		1
 
 /*
  * Returns RSI version.
@@ -182,6 +186,12 @@ struct realm_config {
  */
 #define SMC_RSI_IPA_STATE_GET			SMC_RSI_FID(0x198)
 
+struct rsi_host_call {
+	u16 imm;
+	u8 padding[6];
+	u64 gprs[31];
+};
+
 /*
  * Make a Host call.
  *
@@ -190,4 +200,115 @@ struct realm_config {
  */
 #define SMC_RSI_HOST_CALL			SMC_RSI_FID(0x199)
 
-#endif /* __ASM_RSI_SMC_H_ */
+/*
+ * arg1 == Realm device identifier
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_GET_INSTANCE_ID		SMC_RSI_FID(0x19C)
+
+/*
+ * arg1 == Realm device identifier
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_CONTINUE			SMC_RSI_FID(0x1A4)
+
+struct rsi_device_info {
+	u64 flags;
+	u64 attest_type;
+	u64 cert_id;
+	u8 hash_algo;
+	u8 padding0[39];
+	u8 cert_digest[64];
+	u8 meas_digest[64];
+	u8 report_digest[64];
+	u8 padding1[256];
+};
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == IPA of the Granule to which the digests will be written
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_GET_INFO			SMC_RSI_FID(0x1A5)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * arg3 == Maximum TDISP version accepted by caller
+ * ret0 == Status / error
+ * ret1 == TDISP version
+ */
+#define SMC_RSI_RDEV_GET_INTERFACE_REPORT	SMC_RSI_FID(0x1A6)
+
+#define RSI_RDEV_MEAS_FLAGS_ALL		(1 << 0)
+#define RSI_RDEV_MEAS_FLAGS_SIGNED	(1 << 1)
+#define RSI_RDEV_MEAS_FLAGS_RAW		(1 << 2)
+
+struct rsi_device_measurements_params {
+	union {
+		u64 flags;
+		u8 padding0[0x100];
+	};
+	union {
+		u64 meas_ids[4];
+		u8 padding1[0x100];
+	};
+	union {
+		u64 nonce[4];
+		u8 padding2[0x800];
+	};
+};
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Device instance identifier
+ * arg3 == Address of parameters
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_GET_MEASUREMENTS		SMC_RSI_FID(0x1A7)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * ret0 == Status / error
+ * ret1 == State
+ */
+#define SMC_RSI_RDEV_GET_STATE			SMC_RSI_FID(0x1A8)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_LOCK			SMC_RSI_FID(0x1A9)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_START			SMC_RSI_FID(0x1AA)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * ret0 == Status / error
+ */
+#define SMC_RSI_RDEV_STOP			SMC_RSI_FID(0x1AB)
+
+/*
+ * arg1 == Realm device identifier
+ * arg2 == Realm device instance
+ * arg3 == Base IPA address of target region
+ * arg4 == Top address of target region
+ * arg5 == Physical address of the region
+ * arg6 == flags
+ * ret0 == Status / error
+ * ret1 == Base of IPA region which was not modified by the command
+ * ret2 == RSI response
+ */
+#define SMC_RSI_RDEV_VALIDATE_MAPPING		SMC_RSI_FID(0x1AC)
+
+#define RSI_DEV_MEM_COHERENT			BIT(0)
+
+#endif /* __SMC_RSI_H_ */

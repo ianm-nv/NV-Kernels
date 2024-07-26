@@ -1,6 +1,6 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-/*
- * Copyright (C) 2023 ARM Ltd.
+/* SPDX-License-Identifier: GPL-2.0
+ * SPDX-FileCopyrightText: Copyright (C) 2023 ARM Ltd.
+ * SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #ifndef __ASM_RMI_CMDS_H
@@ -511,6 +511,21 @@ static inline int rmi_mec_set_shared(unsigned long mecid)
 
 	arm_smccc_1_1_invoke(SMC_RMI_MEC_SET_SHARED, mecid, &res);
 
+/**
+ * rmi_pdev_create() - Create a PDEV
+ * @pdev_phys: PA for pdev descriptor structure
+ * @pdev_params_phys: PA for PDEV parameters
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_create(unsigned long pdev_phys,
+					    unsigned long pdev_params_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_CREATE,
+				 pdev_phys, pdev_params_phys, &res);
+
 	return res.a0;
 }
 
@@ -519,6 +534,330 @@ static inline int rmi_mec_set_private(unsigned long mecid)
 	struct arm_smccc_res res;
 
 	arm_smccc_1_1_invoke(SMC_RMI_MEC_SET_PRIVATE, mecid, &res);
+
+/**
+ * rmi_pdev_communicate() - Communicate with the PDEV
+ * @pdev_phys: PA of the PDEV
+ * @io_params: PA of the communication data structure
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_communicate(unsigned long pdev_phys,
+						 unsigned long dev_comm_params)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_COMMUNICATE,
+				 pdev_phys, dev_comm_params, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_stop() - Stop PDEV
+ * @pdev_phys: PA of the PDV
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_stop(unsigned long pdev_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_STOP, pdev_phys, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_destroy() - Destroy PDEV
+ * @pdev_phys: PA of the PDV
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_destroy(unsigned long pdev_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_DESTROY, pdev_phys, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_get_state() - Get state of a PDEV
+ * @pdev_phys: PA of the PDEV
+ * @state: PDEV state
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_get_state(unsigned long pdev_phys, unsigned long *state)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_GET_STATE, pdev_phys, &res);
+
+	*state = res.a1;
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_set_key() - Provide public key associated with a PDEV
+ * @pdev_phys: PA of the PDEV
+ * @key_phys: PA of the key parameters
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_pdev_set_pubkey(unsigned long pdev_phys, unsigned long key_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_SET_PUBKEY, pdev_phys, key_phys, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_create() - Create a VDEV
+ * @rd: PA of the RD
+ * @pdev_phys: PA of the PDEV
+ * @vdev_phys: PA of the VDEV
+ * @params_ptr: PA of VDEV parameters
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_create(unsigned long rd,
+					    unsigned long pdev_ptr,
+					    unsigned long vdev_ptr,
+					    unsigned long params_ptr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_CREATE, rd, pdev_ptr, vdev_ptr, params_ptr, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_communicate() - Perform device communication associated with a VDEV
+ * @pdev_phys: PA of the PDEV
+ * @vdev_phys: PA of the VDEV
+ * @dev_comm_params: PA of the communication data structure
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_communicate(unsigned long pdev_phys,
+				unsigned long vdev_phys,
+				unsigned long dev_comm_params)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_COMMUNICATE, pdev_phys,
+			     vdev_phys, dev_comm_params, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_get_state() - Get state of a VDEV
+ * @vdev_phys: PA of the VDEV
+ * @state: VDEV state
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_get_state(unsigned long vdev_phys,
+					       unsigned long *state)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_GET_STATE, vdev_phys, &res);
+
+	*state = res.a1;
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_complete() - Complete VDEV request
+ * @rec_ptr: PA of the target REC
+ * @vdev_ptr: PA of the VDEV
+ * @state: Result
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_complete(unsigned long rec_ptr,
+					      unsigned long vdev_ptr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_COMPLETE, rec_ptr,
+			     vdev_ptr, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_stop() - Stop a VDEV
+ * @vdev_phys: PA of the VDEV
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_stop(unsigned long vdev_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_STOP, vdev_phys, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_vdev_destroy() - Destroy a VDEV
+ * @pdev_phys: PA of the PDEV
+ * @vdev_phys: PA of the VDEV
+ *
+ * Return: RMI return code
+ */
+static inline unsigned long rmi_vdev_destroy(unsigned long rd,
+					     unsigned long pdev_phys,
+					     unsigned long vdev_phys)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_DESTROY, rd, pdev_phys,
+			     vdev_phys, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_dev_mem_map() - Create an DEV mapping
+ * @rd: PA of the RD
+ * @ipa: IPA at which the granule will be mapped in the guest
+ * @flags: Flags
+ * @rtte: RTTE descriptor
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_dev_mem_map(unsigned long rd,
+				  unsigned long ipa,
+				  unsigned long level,
+				  unsigned long addr)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_DEV_MEM_MAP, rd, ipa, level, addr, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_dev_mem_unmap() - Destroy a DEV mapping
+ * @rd: PA of the RD
+ * @ipa: IPA at which the granule is mapped in the guest
+ * @data_out: PA of the IO granule which was destroyed
+ * @top_out: Top IPA of non-live RTT entries
+ *
+ * Transitions the granule to DESTROYED state.
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_dev_mem_unmap(unsigned long rd, unsigned long ipa,
+				    unsigned long level,
+				    unsigned long *data_out,
+				    unsigned long *top_out)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_DEV_MEM_UNMAP, rd, ipa, level, &res);
+
+	*data_out = res.a1;
+	*top_out = res.a2;
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_aux_count() - Get the number of AUX pages per PDEV
+ * @flags: PDEV flags
+ * @num_aux_out: Number of AUX pages per PDEV
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_pdev_aux_count(unsigned long flags,
+				     unsigned long *top_out)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_AUX_COUNT, flags, &res);
+
+	*top_out = res.a1;
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_aux_count() - Get the number of AUX pages per VDEV
+ * @pdev_flags: PDEV flags
+ * @vdev_flags: VDEV flags
+ * @num_aux_out: Number of AUX pages per VDEV
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_vdev_aux_count(unsigned long pdev_flags,
+				     unsigned long vdev_flags,
+				     unsigned long *top_out)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_VDEV_AUX_COUNT,
+			     pdev_flags,
+			     vdev_flags,
+			     &res);
+
+	*top_out = res.a1;
+
+	return res.a0;
+}
+
+/**
+ * rmi_pdev_notify() - Notify the RMM of an event related to a PDEV.
+ * @pdev: PA of the PDEV
+ * @ev: Event type
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_pdev_notify(unsigned long pdev, unsigned long ev)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_PDEV_NOTIFY, pdev, ev, &res);
+
+	return res.a0;
+}
+
+/**
+ * rmi_rtt_dev_mem_validate() - Set RIPAS for an running Realm
+ * @rd: PA of the RD
+ * @rec: PA of the REC making the request
+ * @base: Base of target IPA region
+ * @top: Top of target IPA region
+ * @out_top: Pointer to write top IPA of range whose RIPAS was modified
+ *
+ * Completes a request made by the Realm to validate mappings to device memory
+ * from a target IPA range.
+ *
+ * Return: RMI return code
+ */
+static inline int rmi_rtt_dev_mem_validate(unsigned long rd, unsigned long rec,
+				    unsigned long base, unsigned long top,
+				    unsigned long *out_top)
+{
+	struct arm_smccc_res res;
+
+	arm_smccc_1_1_invoke(SMC_RMI_RTT_DEV_MEM_VALIDATE, rd, rec,
+			     base, top, &res);
+
+	if (out_top)
+		*out_top = res.a1;
 
 	return res.a0;
 }
