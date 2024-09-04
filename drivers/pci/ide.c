@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 /*
  * Copyright (C) 2024 ARM Ltd.
+ * SPDX-FileCopyrightText: Copyright (C) 2025 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
  */
 
 #define dev_fmt(fmt) "IDE: " fmt
@@ -49,9 +50,9 @@
 #define IDE_LINK_DESC_SIZE		8
 
 /* offset within the selective stream block starting from SEL CAP */
-#define IDE_SEL_CAP_REG		0x0
+#define IDE_SEL_CAP_REG			0x0
 #define IDE_SEL_CTRL_REG		0x4
-#define IDE_SEL_CTRL_REG_STREAMID_MASK	GENMASK(23, 16)
+#define IDE_SEL_CTRL_REG_STREAMID_MASK	GENMASK(31, 24)
 #define IDE_SEL_CTRL_REG_ENABLE_BIT	BIT(0)
 
 #define IDE_SEL_STATUS_REG		0x8
@@ -97,8 +98,9 @@ struct pci_ide {
 };
 
 static void write_ide_rid_register(struct pci_dev *pdev,
-				struct pci_ide_sel_info *sel,
-				unsigned int rid_start, unsigned int rid_end)
+				   struct pci_ide_sel_info *sel,
+				   unsigned int rid_start,
+				   unsigned int rid_end)
 {
 	unsigned int val;
 
@@ -107,14 +109,16 @@ static void write_ide_rid_register(struct pci_dev *pdev,
 	val = FIELD_PREP(IDE_SEL_RID_REG1_LIMIT_MASK, rid_end);
 	pci_write_config_dword(pdev, sel->sel_start + IDE_SEL_RID_REG1, val);
 
-	val = FIELD_PREP(IDE_SEL_RID_REG2_BASE_MASK, rid_end);
+	val = FIELD_PREP(IDE_SEL_RID_REG2_BASE_MASK, rid_start);
 	val |= IDE_SEL_RID_REG2_VALID_BIT;
 	pci_write_config_dword(pdev, sel->sel_start + IDE_SEL_RID_REG2, val);
 }
 
 static void write_ide_addr_register(struct pci_dev *pdev,
-			struct pci_ide_sel_info *sel, unsigned int idx,
-			unsigned long addr_start, unsigned long addr_end)
+				    struct pci_ide_sel_info *sel,
+				    unsigned int idx,
+				    unsigned long addr_start,
+				    unsigned long addr_end)
 {
 	unsigned int val;
 	unsigned int off;
@@ -136,14 +140,17 @@ static void write_ide_addr_register(struct pci_dev *pdev,
 	pci_write_config_dword(pdev, off + IDE_SEL_ADDR_REG1, val);
 }
 
-static void enable_ide_sel_stream(struct pci_dev *pdev, struct pci_ide_sel_info *sel,
-				unsigned int streamid, unsigned int flags)
+static void configure_ide_sel_stream(struct pci_dev *pdev,
+				  struct pci_ide_sel_info *sel,
+				  unsigned int streamid,
+				  unsigned int flags)
 {
 	unsigned int val;
 
 	/* FIXME: add from flags IDE_SEL_CTRL_TEE_LIMIT_STREAM_BIT and others */
 	val = FIELD_PREP(IDE_SEL_CTRL_REG_STREAMID_MASK, streamid);
-	val |= IDE_SEL_CTRL_REG_ENABLE_BIT;
+	val |= flags & PCI_IDE_ENABLE_FLAGS_DEFAULT_STREAM;
+
 	pci_write_config_dword(pdev, sel->sel_start + IDE_SEL_CTRL_REG, val);
 }
 
@@ -177,6 +184,7 @@ int pcie_ide_sel_streamid_alloc(struct pci_dev *pdev)
 		if (old == 0)
 			break;
 	}
+
 	if (i == ide->num_sel)
 		return -ENOMEM;
 
@@ -206,10 +214,13 @@ void pcie_ide_sel_streamid_free(struct pci_dev *pdev, unsigned int streamid)
 }
 EXPORT_SYMBOL(pcie_ide_sel_streamid_free);
 
-int pcie_ide_program_rp_stream(struct pci_dev *pdev, u8 streamid,
-			unsigned long rid_start, unsigned long rid_end,
-			struct ide_addr_range *addr, unsigned int naddr,
-			unsigned int flags)
+int pcie_ide_program_rp_stream(struct pci_dev *pdev,
+			       u8 streamid,
+			       unsigned long rid_start,
+			       unsigned long rid_end,
+			       struct ide_addr_range *addr,
+			       unsigned int naddr,
+			       unsigned int flags)
 {
 	struct pci_ide *ide = pdev->ide;
 	struct pci_ide_sel_info *sel = NULL;
@@ -235,21 +246,75 @@ int pcie_ide_program_rp_stream(struct pci_dev *pdev, u8 streamid,
 
 	write_ide_rid_register(pdev, sel, rid_start, rid_end);
 	for (i = 0; i < naddr; i++)
-		write_ide_addr_register(pdev, sel, i, addr[i].start, addr[i].end);
+		write_ide_addr_register(pdev,
+					sel,
+					i,
+					addr[i].start,
+					addr[i].end);
 
-	/* FIXME: Do we need to separate this to an explicit enable call ? */
-	enable_ide_sel_stream(pdev, sel, streamid, flags);
+	configure_ide_sel_stream(pdev, sel, streamid, flags);
+
 	return 0;
 }
 EXPORT_SYMBOL(pcie_ide_program_rp_stream);
 
-int pcie_ide_program_ep_stream(struct pci_dev *pdev, u8 streamid, unsigned int flags)
+int pcie_ide_enable(struct pci_dev *pdev, u8 streamid)
 {
-	/* TODO: program endpoint default stream */
+	struct pci_ide *ide = pdev->ide;
+	struct pci_ide_sel_info *sel = NULL;
+	unsigned int val;
+
+	sel = &ide->sel[streamid];
+
+	pci_read_config_dword(pdev, sel->sel_start + IDE_SEL_CTRL_REG, &val);
+	val |= IDE_SEL_CTRL_REG_ENABLE_BIT;
+	pci_write_config_dword(pdev, sel->sel_start + IDE_SEL_CTRL_REG, val);
+
 	pci_info(pdev, "%s sid:%d\n", __func__, streamid);
+
+	return 0;
+}
+EXPORT_SYMBOL(pcie_ide_enable);
+
+int pcie_ide_program_ep_stream(struct pci_dev *pdev,
+			       u8 streamid,
+			       unsigned int flags)
+{
+	struct pci_ide *ide = pdev->ide;
+	struct pci_ide_sel_info *sel = NULL;
+
+	if (streamid >= ide->num_sel)
+		return -EINVAL;
+
+	sel = &ide->sel[streamid];
+
+	write_ide_rid_register(pdev, sel, 0, 0xFFFF);
+	write_ide_addr_register(pdev, sel, 0, 0, 0xFFFFFFFFFFF00000ULL);
+
+	configure_ide_sel_stream(pdev, sel, streamid, flags);
+
+	pci_info(pdev, "%s sid:%d\n", __func__, streamid);
+
 	return 0;
 }
 EXPORT_SYMBOL(pcie_ide_program_ep_stream);
+
+void pcie_ide_disable(struct pci_dev *pdev, u8 streamid)
+{
+	struct pci_ide *ide = pdev->ide;
+	struct pci_ide_sel_info *sel = NULL;
+
+	if (streamid >= ide->num_sel)
+		return;
+
+	sel = &ide->sel[streamid];
+
+	/* Clearing enable bit transitions stream state to insecure */
+	pci_write_config_dword(pdev, sel->sel_start + IDE_SEL_CTRL_REG, 0);
+
+	pci_info(pdev, "%s sid:%d\n", __func__, streamid);
+}
+EXPORT_SYMBOL(pcie_ide_disable);
 
 struct pci_ide_info *pci_get_ide(struct pci_dev *pdev)
 {
@@ -260,17 +325,22 @@ EXPORT_SYMBOL(pci_get_ide);
 
 static int ide_dev_create(struct pci_dev *pdev, u16 ide_start)
 {
-
 	struct pci_ide *ide;
 	struct pci_ide_info *info;
 	u16 num_link = 0;
 	u16 sel_next = 0;
 	u32 val;
 	unsigned int i;
+	unsigned int next_cap;
 
 	ide = kzalloc(sizeof(struct pci_ide), GFP_KERNEL);
 	if (!ide)
 		return -ENOMEM;
+
+	/* Determine the maximum size of the capability */
+	pci_read_config_dword(pdev, ide_start, &val);
+	next_cap = PCI_EXT_CAP_NEXT(val);
+	next_cap = next_cap ? next_cap : 0xfff;
 
 	info = &ide->info;
 	pci_read_config_dword(pdev, ide_start + IDE_CAP_REG, &val);
@@ -280,33 +350,66 @@ static int ide_dev_create(struct pci_dev *pdev, u16 ide_start)
 	info->limited_stream = !!(val & IDE_CAP_LIMITED_STREAM_BIT);
 
 	if (info->sel_ide)
-		ide->num_sel = ((val & IDE_CAP_NUM_SEL_MASK) >> IDE_CAP_NUM_SEL_SHIFT) + 1;
+		ide->num_sel = ((val & IDE_CAP_NUM_SEL_MASK) >>
+				IDE_CAP_NUM_SEL_SHIFT) + 1;
 
 	if (!!(val & IDE_CAP_LINK_BIT))
-		num_link = ((val & IDE_CAP_NUM_LINK_MASK) >> IDE_CAP_NUM_LINK_SHIFT) + 1;
+		num_link = ((val & IDE_CAP_NUM_LINK_MASK) >>
+			    IDE_CAP_NUM_LINK_SHIFT) + 1;
 
 	if (ide->num_sel)
-		ide->sel = kzalloc(ide->num_sel * sizeof(struct pci_ide_sel_info), GFP_KERNEL);
+		ide->sel = kzalloc(ide->num_sel *
+				   sizeof(struct pci_ide_sel_info),
+				   GFP_KERNEL);
 
 	if (!ide->sel)
 		goto err_sel_info;
 
 	pci_info(pdev, "Info: sel_ide:%d flow_thru:%d, km_support: %d num_sel:%d\n",
-			info->sel_ide, info->flow_thru, info->km_support, info->num_sel);
+			info->sel_ide,
+			info->flow_thru,
+			info->km_support,
+			ide->num_sel);
+
 	sel_next = ide_start + IDE_DESC_SIZE + num_link * IDE_LINK_DESC_SIZE;
 	for (i = 0; i < ide->num_sel; i++) {
-		pci_read_config_dword(pdev, sel_next, &val);
-		ide->sel[i].sel_start = sel_next;
-		ide->sel[i].num_addr = val & 0xf;
-		pci_info(pdev, " SEL: start:%d num_addr:%d\n",
-			 ide->sel[i].sel_start, ide->sel[i].num_addr);
+		u16 sel_cur = sel_next;
+		unsigned int num_addr;
 
-		/* FIXME: for debug */
-		WARN_ON(ide->sel[i].num_addr < 3);
-		sel_next += IDE_SEL_DESC_SIZE +
-			ide->sel[i].num_addr * IDE_SEL_ADDR_DESC_SIZE;
+		pci_read_config_dword(pdev, sel_cur, &val);
+		num_addr = val & 0xf;
+
+		sel_next += IDE_SEL_DESC_SIZE + num_addr * IDE_SEL_ADDR_DESC_SIZE;
+
+		/*
+		 * The IDE extcap may have reported the number of IDEs incorrectly
+		 * (i.e. there is an off-by-one bug). Take this into account by
+		 * ensuring that the current field won't overlap with the next
+		 * capability.
+		 */
+		if ((sel_next - 1) >= next_cap) {
+			pci_warn(pdev, "IDE implementation defective. Updating sel_ide to %d",
+				 i);
+			break;
+		}
+
+		ide->sel[i].sel_start = sel_cur;
+		ide->sel[i].num_addr = val & 0xf;
+
+		pci_info(pdev, " SEL: start:%d num_addr:%d\n",
+			 ide->sel[i].sel_start,
+			 ide->sel[i].num_addr);
+
 	}
+
+	/*
+	 * Update the number of selective IDEs based on the number of
+	 * initialized fields
+	 */
+	ide->num_sel = i;
+
 	pdev->ide = ide;
+
 	return 0;
 
 err_sel_info:
