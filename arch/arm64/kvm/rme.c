@@ -2209,6 +2209,9 @@ int kvm_init_realm_vm(struct kvm *kvm)
 	INIT_LIST_HEAD(&kvm->arch.realm.hsi_cbs_list);
 	mutex_init(&kvm->arch.realm.hsi_cbs_lock);
 
+	INIT_LIST_HEAD(&kvm->arch.realm.vdevs_list);
+	mutex_init(&kvm->arch.realm.vdevs_lock);
+
 	return 0;
 }
 
@@ -2421,4 +2424,75 @@ bool kvm_realm_is_hsi(struct kvm_vcpu *vcpu, unsigned long hsi_id,
 	}
 	mutex_unlock(&realm->hsi_cbs_lock);
 	return ret;
+}
+
+int kvm_realm_register_vdev(struct kvm *kvm,
+			    unsigned long vdev_id,
+			    phys_addr_t vdev_phys)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_vdev *vdev;
+	int ret = 0;
+
+	mutex_lock(&realm->vdevs_lock);
+	list_for_each_entry(vdev, &realm->vdevs_list, list) {
+		if (vdev->vdev_phys == vdev_phys ||
+		    vdev->vdev_id == vdev_id) {
+			ret = -EEXIST;
+			goto out_unlock;
+		}
+	}
+
+	vdev = kzalloc(sizeof(*vdev), GFP_KERNEL);
+	if (!vdev) {
+		ret = -ENOMEM;
+		goto out_unlock;
+	}
+
+	INIT_LIST_HEAD(&vdev->list);
+	vdev->vdev_phys = vdev_phys;
+	vdev->vdev_id = vdev_id;
+	list_add_tail(&vdev->list, &realm->vdevs_list);
+
+out_unlock:
+	mutex_unlock(&realm->vdevs_lock);
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kvm_realm_register_vdev);
+
+void kvm_realm_unregister_vdev(struct kvm *kvm,
+			       unsigned long vdev_id)
+{
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_vdev *vdev;
+
+	mutex_lock(&realm->vdevs_lock);
+	list_for_each_entry(vdev, &realm->vdevs_list, list) {
+		if (vdev->vdev_id == vdev_id) {
+			list_del(&vdev->list);
+			kfree(vdev);
+			break;
+		}
+	}
+	mutex_unlock(&realm->vdevs_lock);
+}
+EXPORT_SYMBOL_GPL(kvm_realm_unregister_vdev);
+
+void kvm_realm_complete_vdev(struct kvm_vcpu *vcpu)
+{
+	struct kvm *kvm = vcpu->kvm;
+	struct realm_rec *rec = &vcpu->arch.rec;
+	struct realm *realm = &kvm->arch.realm;
+	struct realm_vdev *vdev;
+	unsigned long vdev_id = rec->run->exit.vdev_id;
+
+	mutex_lock(&realm->vdevs_lock);
+	list_for_each_entry(vdev, &realm->vdevs_list, list) {
+		if (vdev->vdev_id == vdev_id) {
+			rmi_vdev_complete(virt_to_phys(rec->rec_page),
+					  vdev->vdev_phys);
+			break;
+		}
+	}
+	mutex_unlock(&realm->vdevs_lock);
 }

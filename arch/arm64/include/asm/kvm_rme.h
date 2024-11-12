@@ -84,6 +84,20 @@ struct realm_hsi_cb {
 };
 
 /**
+ * struct realm_vdev - VDEV mapping data
+ *
+ * @list: The list of attached drivers
+ * @vdev_id: VDEV ID
+ * @vdev_phys: VDEV physucal address
+ */
+struct realm_vdev {
+	struct list_head list;
+	unsigned long vdev_id;
+	unsigned long vdev_phys;
+};
+
+
+/**
  * struct realm - Additional per VM data for a Realm
  *
  * @state: The lifetime state machine for the realm
@@ -115,6 +129,9 @@ struct realm {
 
 	struct list_head hsi_cbs_list;
 	struct mutex hsi_cbs_lock;
+
+	struct list_head vdevs_list;
+	struct mutex vdevs_lock;
 };
 
 /**
@@ -207,6 +224,12 @@ int kvm_realm_invoke_hsi_callback(struct kvm_vcpu *vcpu,
 				  unsigned long sub_id);
 bool kvm_realm_is_hsi(struct kvm_vcpu *vcpu, unsigned long hsi_id,
 		      unsigned long sub_id);
+int kvm_realm_register_vdev(struct kvm *kvm,
+			    unsigned long vdev_id,
+			    phys_addr_t vdev_phys);
+void kvm_realm_unregister_vdev(struct kvm *kvm,
+			       unsigned long vdev_id);
+void kvm_realm_complete_vdev(struct kvm_vcpu *vcpu);
 
 static inline bool kvm_realm_is_private_address(struct realm *realm,
 						unsigned long addr)
