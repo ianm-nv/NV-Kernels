@@ -228,6 +228,9 @@ int handle_rec_exit(struct kvm_vcpu *vcpu, int rec_run_ret)
 		return rec_exit_ripas_change(vcpu);
 	case RMI_EXIT_HOST_CALL:
 		return rec_exit_host_call(vcpu);
+	case RMI_EXIT_VDEV_REQUEST:
+		kvm_realm_complete_vdev(vcpu);
+		return 1;
 	case RMI_EXIT_DEV_COMM:
 		return rec_exit_dev_comm(vcpu);
 	}
