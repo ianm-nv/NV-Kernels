@@ -7,6 +7,7 @@ metrics like memory bandwidth, latency, and utilization:
 
 * Unified Coherence Fabric (UCF)
 * PCIE
+* PCIE-TGT
 
 PMU Driver
 ----------
@@ -211,6 +212,70 @@ Example usage:
 
    perf stat -a -e nvidia_pcie_pmu_0_chiplet_4/event=0x4,src_bdf=0x0180,src_bdf_en=0x1/
 
+PCIE-TGT PMU
+------------
+
+The PCIE-TGT PMU monitors traffic targeting PCIE root ports or PCIE/CXL BAR.
+There is one PCIE-TGT PMU per PCIE chiplet in the SoC. Please see
+:ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about the PMU
+traffic coverage.
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_pcie_tgt_pmu_<socket-id>_chiplet_<pcie-chiplet-id>.
+
+The events in this PMU can be used to measure bandwidth and utilization:
+
+  * rd_req: count the number of read requests to PCIE.
+  * wr_req: count the number of write requests to PCIE.
+  * rd_bytes: count the number of bytes transferred by rd_req.
+  * wr_bytes: count the number of bytes transferred by wr_req.
+  * cycles: counts the PCIE cycles.
+
+The average bandwidth is calculated as::
+
+   AVG_RD_BANDWIDTH_IN_GBPS = RD_BYTES / ELAPSED_TIME_IN_NS
+   AVG_WR_BANDWIDTH_IN_GBPS = WR_BYTES / ELAPSED_TIME_IN_NS
+
+The average request rate is calculated as::
+
+   AVG_RD_REQUEST_RATE = RD_REQ / CYCLES
+   AVG_WR_REQUEST_RATE = WR_REQ / CYCLES
+
+The PMU events can be filtered based on the destination root port or target BAR
+address range. The available filters are described in
+/sys/bus/event_source/devices/nvidia_pcie_tgt_pmu_<socket-id>_chiplet_<pcie-chiplet-id>/format/.
+
+The list of event filters:
+
+* Destination filter:
+
+  * dst_root_port: bitmap parameter to select the root port(s).
+    I.e. "dst_root_port=0xF" corresponds to root port 0 to 3 in the PCIE chiplet.
+  * dst_bar_addr: BAR filter base address.
+  * dst_bar_mask: BAR filter address mask.
+  * dst_bar_en: enable the BAR filter. If this is set, the BAR filter address
+    range specified by "dst_bar_addr" and "dst_bar_mask" will be used to filter
+    the traffic. The PMU uses the following comparison to determine if the
+    traffic destination address falls within the filter range::
+
+      (txn's addr & dst_bar_mask) == (dst_bar_addr & dst_bar_mask)
+
+    If the comparison succeeds, then the event will be counted.
+
+If the destination filter is not specified, the PMU will count events to all
+root ports.
+
+Example usage:
+
+* Count event id 0x0 to root port 0 and 1 of PCIE chiplet 0 on socket 0::
+
+   perf stat -a -e nvidia_pcie_tgt_pmu_0_chiplet_0/event=0x0,dst_root_port=0x3/
+
+* Count event id 0x1 that falls within address range 0x10000 to 0x100FF in PCIE
+  chiplet 0 on socket 0::
+
+   perf stat -a -e nvidia_pcie_tgt_pmu_0_chiplet_0/event=0x1,dst_bar_addr=0x10000,dst_bar_mask=0xFFF00,dst_bar_en=0x1/
+
 .. _NVIDIA_T410_PMU_Traffic_Coverage_Section:
 
 Traffic Coverage
@@ -264,9 +329,23 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU can not distinguish GPU A1 and A2 memory and always count both.
 
+    * Socket A PCIE BAR:
+
+      - PCIE-TGT PMU:
+
+        This PMU also counts traffic to CXLMEM. It can not distinguish CXLMEM
+        vs PCIE BAR. It does not have source filter and counts traffic from any
+        source.
+
     * Any CXLMEM of Socket A:
 
       - UCF PMU: source filter = src_loc_cpu, destination filter = dst_loc_other
+      - PCIE-TGT PMU:
+
+        Unlike UCF PMU, PCIE-TGT PMU can filter the destination based on
+        root port or BAR address range. This PMU also counts traffic to PCIE
+        BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
+        filter and counts traffic from any source.
 
     * Any memory of Socket B:
 
@@ -291,6 +370,14 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU only counts traffic from PCIE device.
 
+    * Socket A PCIE BAR:
+
+      - PCIE-TGT PMU:
+
+        This PMU also counts traffic to CXLMEM. It can not distinguish CXLMEM
+        vs PCIE BAR. It does not have source filter and counts traffic from any
+        source.
+
     * Any CXLMEM of Socket A:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_other
@@ -298,6 +385,13 @@ The PMU traffic coverage may vary dependent on the chip configuration:
       - PCIE PMU: destination filter = dst_loc_pcie_cxl
 
         This PMU only counts traffic from PCIE device.
+
+      - PCIE-TGT PMU:
+
+        Unlike UCF or PCIE PMU, PCIE-TGT PMU can filter the destination based
+        on root port or BAR address range. This PMU also counts traffic to PCIE
+        BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
+        filter and counts traffic from any source.
 
     * Any memory of Socket B:
 
@@ -319,9 +413,23 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU can not distinguish GPU A1 and A2 memory and always count both.
 
+    * Socket A PCIE BAR:
+
+      - PCIE-TGT PMU:
+
+        This PMU also counts traffic to CXLMEM. It can not distinguish CXLMEM
+        vs PCIE BAR. It does not have source filter and counts traffic from any
+        source.
+
     * Any CXLMEM of Socket A:
 
       - UCF PMU: source filter = src_rem, destination filter = dst_loc_other
+      - PCIE-TGT PMU:
+
+        Unlike UCF PMU, PCIE-TGT PMU can filter the destination based on
+        root port or BAR address range. This PMU also counts traffic to PCIE
+        BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
+        filter and counts traffic from any source.
 
 
 * **NVIDIA Tegra410 CPU-CPU Superchip**:

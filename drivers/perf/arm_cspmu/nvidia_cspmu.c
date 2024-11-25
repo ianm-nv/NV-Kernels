@@ -42,6 +42,24 @@
 #define NV_PCIE_V2_FILTER2_DST       GENMASK_ULL(NV_PCIE_V2_DST_COUNT - 1, 0)
 #define NV_PCIE_V2_FILTER2_DEFAULT   NV_PCIE_V2_FILTER2_DST
 
+#define NV_PCIE_TGT_EVENT_TYPE_MASK  GENMASK_ULL(2, 0)
+#define NV_PCIE_TGT_EVENT_TYPE_CYCLE_COUNTER 0x4
+#define NV_PCIE_TGT_PORT_COUNT       8ULL
+#define NV_PCIE_TGT_BAR_COUNT        8ULL
+#define NV_PCIE_TGT_BAR_EN           BIT(NV_PCIE_TGT_PORT_COUNT)
+#define NV_PCIE_TGT_FILTER2_SHIFT    3ULL
+#define NV_PCIE_TGT_FILTER2_ID_MASK  GENMASK_ULL(NV_PCIE_TGT_PORT_COUNT, 0)
+#define NV_PCIE_TGT_FILTER2_PORT     GENMASK_ULL(NV_PCIE_TGT_PORT_COUNT - 1, 0)
+#define NV_PCIE_TGT_FILTER2_BAR      GENMASK_ULL(15, NV_PCIE_TGT_PORT_COUNT)
+#define NV_PCIE_TGT_FILTER2_DEFAULT  NV_PCIE_TGT_FILTER2_PORT
+
+#define NV_PCIE_TGT_BAR_STRIDE       20
+#define NV_PCIE_TGT_BAR_CTRL         0xD38
+#define NV_PCIE_TGT_BAR_ADDR_LO      0xD3C
+#define NV_PCIE_TGT_BAR_ADDR_HI      0xD40
+#define NV_PCIE_TGT_BAR_MASK_LO      0xD44
+#define NV_PCIE_TGT_BAR_MASK_HI      0xD48
+
 #define NV_GENERIC_FILTER_ID_MASK    GENMASK_ULL(31, 0)
 
 #define NV_PRODID_MASK	(PMIIDR_PRODUCTID | PMIIDR_VARIANT | PMIIDR_REVISION)
@@ -168,6 +186,15 @@ static struct attribute *pcie_v2_pmu_event_attrs[] = {
 	NULL,
 };
 
+static struct attribute *pcie_tgt_pmu_event_attrs[] = {
+	ARM_CSPMU_EVENT_ATTR(rd_bytes,		0x0),
+	ARM_CSPMU_EVENT_ATTR(wr_bytes,		0x1),
+	ARM_CSPMU_EVENT_ATTR(rd_req,		0x2),
+	ARM_CSPMU_EVENT_ATTR(wr_req,		0x3),
+	ARM_CSPMU_EVENT_ATTR(cycles, NV_PCIE_TGT_EVENT_TYPE_CYCLE_COUNTER),
+	NULL,
+};
+
 static struct attribute *generic_pmu_event_attrs[] = {
 	ARM_CSPMU_EVENT_ATTR(cycles, ARM_CSPMU_EVT_CYCLES_DEFAULT),
 	NULL,
@@ -218,6 +245,15 @@ static struct attribute *pcie_v2_pmu_format_attrs[] = {
 	ARM_CSPMU_FORMAT_ATTR(dst_loc_pcie_p2p, "config2:2"),
 	ARM_CSPMU_FORMAT_ATTR(dst_loc_pcie_cxl, "config2:3"),
 	ARM_CSPMU_FORMAT_ATTR(dst_rem, "config2:4"),
+	NULL,
+};
+
+static struct attribute *pcie_tgt_pmu_format_attrs[] = {
+	ARM_CSPMU_FORMAT_ATTR(event, "config:0-2"),
+	ARM_CSPMU_FORMAT_ATTR(dst_root_port, "config:3-10"),
+	ARM_CSPMU_FORMAT_ATTR(dst_bar_en, "config:11"),
+	ARM_CSPMU_FORMAT_ATTR(dst_bar_addr, "config1:0-63"),
+	ARM_CSPMU_FORMAT_ATTR(dst_bar_mask, "config2:0-63"),
 	NULL,
 };
 
@@ -460,6 +496,273 @@ static int pcie_v2_pmu_validate_event(struct arm_cspmu *cspmu,
 	return 0;
 }
 
+struct pcie_tgt_bar_filter {
+	u32 bar_refcount;
+	u64 bar_addr;
+	u64 bar_mask;
+};
+
+struct pcie_tgt_data {
+	struct pcie_tgt_bar_filter bar_filter[NV_PCIE_TGT_BAR_COUNT];
+	void __iomem *bar_base;
+};
+
+#if defined(CONFIG_ACPI)
+static int pcie_tgt_init_data(struct arm_cspmu *cspmu)
+{
+	int ret;
+	struct acpi_device *adev;
+	struct pcie_tgt_data *data;
+	struct list_head resource_list;
+	struct resource_entry *rentry;
+	struct nv_cspmu_ctx *ctx = to_nv_cspmu_ctx(cspmu);
+	struct device *dev = cspmu->dev;
+
+	data = devm_kzalloc(dev, sizeof(struct pcie_tgt_data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	adev = arm_cspmu_acpi_dev_get(cspmu);
+	if (!adev)
+		return -ENODEV;
+
+	INIT_LIST_HEAD(&resource_list);
+	ret = acpi_dev_get_memory_resources(adev, &resource_list);
+	if (ret) {
+		rentry = list_first_entry_or_null(
+			&resource_list, struct resource_entry, node);
+		if (rentry) {
+			data->bar_base =
+				devm_ioremap_resource(dev, rentry->res);
+			ret = 0;
+		}
+	}
+
+	if (IS_ERR(data->bar_base)) {
+		dev_err(dev, "failed to get BAR filter resource\n");
+		ret = PTR_ERR(data->bar_base);
+	}
+
+	acpi_dev_free_resource_list(&resource_list);
+	acpi_dev_put(adev);
+
+	ctx->data = data;
+
+	return ret;
+}
+#else
+static int pcie_tgt_init_data(struct arm_cspmu *cspmu)
+{
+	return -ENODEV;
+}
+#endif
+
+static struct pcie_tgt_data *pcie_tgt_get_data(struct arm_cspmu *cspmu)
+{
+	struct nv_cspmu_ctx *ctx = to_nv_cspmu_ctx(cspmu);
+
+	return ctx->data;
+}
+
+/* Find the first available BAR filter slot. */
+static int pcie_tgt_find_bar_idx(struct arm_cspmu *cspmu, u64 bar_addr,
+				u64 bar_mask, bool is_reset)
+{
+	int i;
+	struct pcie_tgt_data *data = pcie_tgt_get_data(cspmu);
+
+	for (i = 0; i < NV_PCIE_TGT_BAR_COUNT; i++) {
+		if (!is_reset && data->bar_filter[i].bar_refcount == 0)
+			return i;
+
+		if (data->bar_filter[i].bar_addr == bar_addr &&
+			data->bar_filter[i].bar_mask == bar_mask)
+			return i;
+	}
+
+	return -ENODEV;
+}
+
+static u32 pcie_tgt_pmu_event_filter(const struct perf_event *event)
+{
+	u32 filter;
+
+	filter = (event->attr.config >> NV_PCIE_TGT_FILTER2_SHIFT) &
+		NV_PCIE_TGT_FILTER2_ID_MASK;
+
+	return filter;
+}
+
+static bool pcie_tgt_pmu_is_bar_filter_enabled(const struct perf_event *event)
+{
+	u32 filter = pcie_tgt_pmu_event_filter(event);
+
+	return FIELD_GET(NV_PCIE_TGT_BAR_EN, filter) != 0;
+}
+
+static u32 pcie_tgt_pmu_port_filter(const struct perf_event *event)
+{
+	u32 filter = pcie_tgt_pmu_event_filter(event);
+
+	return FIELD_GET(NV_PCIE_TGT_FILTER2_PORT, filter);
+}
+
+static u64 pcie_tgt_pmu_bar_addr(const struct perf_event *event)
+{
+	return event->attr.config1;
+}
+
+static u64 pcie_tgt_pmu_bar_mask(const struct perf_event *event)
+{
+	return event->attr.config2;
+}
+
+
+static int pcie_tgt_pmu_validate_event(struct arm_cspmu *cspmu,
+				   struct perf_event *new_ev)
+{
+	u64 bar_addr, bar_mask;
+	int bar_idx;
+
+	if (!pcie_tgt_pmu_is_bar_filter_enabled(new_ev))
+		return 0;
+
+	bar_addr = pcie_tgt_pmu_bar_addr(new_ev);
+	bar_mask = pcie_tgt_pmu_bar_mask(new_ev);
+	if (bar_addr == 0 || bar_mask == 0)
+		return -EINVAL;
+
+	/* Make sure there is a slot available for the BAR filter. */
+	bar_idx = pcie_tgt_find_bar_idx(cspmu, bar_addr, bar_mask, false);
+	if (bar_idx < 0)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void pcie_tgt_pmu_configure_bar(struct arm_cspmu *cspmu,
+	bool en, u64 bar_addr, u64 bar_mask, int bar_idx)
+{
+	struct pcie_tgt_data *data;
+	struct pcie_tgt_bar_filter *bar_filter;
+	void __iomem *bar_base;
+
+	data = pcie_tgt_get_data(cspmu);
+	bar_filter = &data->bar_filter[bar_idx];
+	bar_base = data->bar_base + (bar_idx * NV_PCIE_TGT_BAR_STRIDE);
+
+	if (en) {
+		bar_filter->bar_refcount++;
+		if (bar_filter->bar_refcount == 1) {
+			bar_filter->bar_addr = bar_addr;
+			bar_filter->bar_mask = bar_mask;
+
+			writel(lower_32_bits(bar_addr),
+				bar_base + NV_PCIE_TGT_BAR_ADDR_LO);
+			writel(upper_32_bits(bar_addr),
+				bar_base + NV_PCIE_TGT_BAR_ADDR_HI);
+			writel(lower_32_bits(bar_mask),
+				bar_base + NV_PCIE_TGT_BAR_MASK_LO);
+			writel(upper_32_bits(bar_mask),
+				bar_base + NV_PCIE_TGT_BAR_MASK_HI);
+			writel(1, bar_base + NV_PCIE_TGT_BAR_CTRL);
+		}
+	} else {
+		bar_filter->bar_refcount--;
+		if (bar_filter->bar_refcount == 0) {
+			writel(0, bar_base + NV_PCIE_TGT_BAR_CTRL);
+			writel(0, bar_base + NV_PCIE_TGT_BAR_ADDR_LO);
+			writel(0, bar_base + NV_PCIE_TGT_BAR_ADDR_HI);
+			writel(0, bar_base + NV_PCIE_TGT_BAR_MASK_LO);
+			writel(0, bar_base + NV_PCIE_TGT_BAR_MASK_HI);
+
+			bar_filter->bar_addr = 0;
+			bar_filter->bar_mask = 0;
+		}
+	}
+}
+
+static void pcie_tgt_pmu_set_ev_filter(struct arm_cspmu *cspmu,
+				const struct perf_event *event)
+{
+	u32 filter2_val, filter2_offset, port_filter;
+	bool bar_filter_en;
+	u64 bar_addr, bar_mask;
+	int bar_idx;
+
+	filter2_val = 0;
+	filter2_offset = PMEVFILT2R + (4 * event->hw.idx);
+
+	bar_filter_en = pcie_tgt_pmu_is_bar_filter_enabled(event);
+	if (bar_filter_en) {
+		bar_addr = pcie_tgt_pmu_bar_addr(event);
+		bar_mask = pcie_tgt_pmu_bar_mask(event);
+		bar_idx = pcie_tgt_find_bar_idx(cspmu, bar_addr, bar_mask, false);
+
+		if (bar_idx < 0) {
+			dev_err(cspmu->dev,
+				"Unable to find a slot for BAR filtering\n");
+			writel(0, cspmu->base0 + filter2_offset);
+			return;
+		}
+
+		/* Configure BAR registers.*/
+		pcie_tgt_pmu_configure_bar(
+			cspmu, true, bar_addr, bar_mask, bar_idx);
+
+		/* Config the counter to use the selected BAR slot. */
+		filter2_val |=
+			FIELD_PREP(NV_PCIE_TGT_FILTER2_BAR, 1U << bar_idx);
+	}
+
+	port_filter = pcie_tgt_pmu_port_filter(event);
+
+	/* Monitor all ports if no filter is selected. */
+	if (!bar_filter_en && port_filter == 0)
+		port_filter = NV_PCIE_TGT_FILTER2_PORT;
+
+	filter2_val |= FIELD_PREP(NV_PCIE_TGT_FILTER2_PORT, port_filter);
+
+	writel(filter2_val, cspmu->base0 + filter2_offset);
+}
+
+static void pcie_tgt_pmu_reset_ev_filter(struct arm_cspmu *cspmu,
+				     const struct perf_event *event)
+{
+	bool bar_filter_en;
+	u64 bar_addr, bar_mask;
+	int bar_idx;
+
+	bar_filter_en = pcie_tgt_pmu_is_bar_filter_enabled(event);
+	if (!bar_filter_en)
+		return;
+
+	bar_addr = pcie_tgt_pmu_bar_addr(event);
+	bar_mask = pcie_tgt_pmu_bar_mask(event);
+	bar_idx = pcie_tgt_find_bar_idx(cspmu, bar_addr, bar_mask, true);
+
+	if (bar_idx < 0) {
+		dev_err(cspmu->dev,
+			"Unable to find the BAR filter slot to reset\n");
+		return;
+	}
+
+	pcie_tgt_pmu_configure_bar(
+			cspmu, false, bar_addr, bar_mask, bar_idx);
+}
+
+static u32 pcie_tgt_pmu_event_type(const struct perf_event *event)
+{
+	return event->attr.config & NV_PCIE_TGT_EVENT_TYPE_MASK;
+}
+
+static bool pcie_tgt_pmu_is_cycle_counter_event(const struct perf_event *event)
+{
+	u32 event_type = pcie_tgt_pmu_event_type(event);
+
+	return event_type == NV_PCIE_TGT_EVENT_TYPE_CYCLE_COUNTER;
+}
+
 enum nv_cspmu_name_fmt {
 	NAME_FMT_GENERIC,
 	NAME_FMT_SOCKET,
@@ -605,6 +908,30 @@ static const struct nv_cspmu_match nv_cspmu_match[] = {
 	  }
 	},
 	{
+	  .prodid = 0x10700000,
+	  .prodid_mask = NV_PRODID_MASK,
+	  .name_pattern = "nvidia_pcie_tgt_pmu_%u_chiplet_%u",
+	  .name_fmt = NAME_FMT_SOCKET_INST,
+	  .template_ctx = {
+		.event_attr = pcie_tgt_pmu_event_attrs,
+		.format_attr = pcie_tgt_pmu_format_attrs,
+		.filter_mask = 0x0,
+		.filter_default_val = 0x0,
+		.filter2_mask = NV_PCIE_TGT_FILTER2_ID_MASK,
+		.filter2_default_val = NV_PCIE_TGT_FILTER2_DEFAULT,
+		.get_filter = NULL,
+		.get_filter2 = NULL,
+		.init_data = pcie_tgt_init_data
+	  },
+	  .ops = {
+		.is_cycle_counter_event = pcie_tgt_pmu_is_cycle_counter_event,
+		.event_type = pcie_tgt_pmu_event_type,
+		.validate_event = pcie_tgt_pmu_validate_event,
+		.set_ev_filter = pcie_tgt_pmu_set_ev_filter,
+		.reset_ev_filter = pcie_tgt_pmu_reset_ev_filter,
+	  }
+	},
+	{
 	  .prodid = 0,
 	  .prodid_mask = 0,
 	  .name_pattern = "nvidia_uncore_pmu_%u",
@@ -699,6 +1026,8 @@ static int nv_cspmu_init_ops(struct arm_cspmu *cspmu)
 
 	/* NVIDIA specific callbacks. */
 	SET_OP(validate_event, impl_ops, match, NULL);
+	SET_OP(event_type, impl_ops, match, NULL);
+	SET_OP(is_cycle_counter_event, impl_ops, match, NULL);
 	SET_OP(set_cc_filter, impl_ops, match, nv_cspmu_set_cc_filter);
 	SET_OP(set_ev_filter, impl_ops, match, nv_cspmu_set_ev_filter);
 	SET_OP(reset_ev_filter, impl_ops, match, NULL);
