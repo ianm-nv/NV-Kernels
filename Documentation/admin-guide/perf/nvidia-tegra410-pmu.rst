@@ -6,6 +6,7 @@ The NVIDIA Tegra410 SoC includes various system PMUs to measure key performance
 metrics like memory bandwidth, latency, and utilization:
 
 * Unified Coherence Fabric (UCF)
+* PCIE
 
 PMU Driver
 ----------
@@ -109,6 +110,107 @@ Example usage:
 
    perf stat -a -e nvidia_ucf_pmu_1/event=0x0,src_loc_noncpu=0x1,dst_rem=0x1/
 
+PCIE PMU
+----------------
+
+This PMU monitors all read/write traffic from the root port(s) or a particular
+BDF in a PCIE chiplet to local/remote memory. There is one PCIE PMU per PCIE
+chiplet in the SoC. Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section`
+for more info about the PMU traffic coverage.
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_pcie_pmu_<socket-id>_chiplet_<pcie-chiplet-id>.
+
+The events in this PMU can be used to measure bandwidth, utilization, and
+latency:
+
+  * rd_req: count the number of read requests by PCIE device.
+  * wr_req: count the number of write requests by PCIE device.
+  * rd_bytes: count the number of bytes transferred by rd_req.
+  * wr_bytes: count the number of bytes transferred by wr_req.
+  * rd_cum_outs: count outstanding rd_req each cycle.
+  * cycles: counts the PCIE cycles.
+
+The average bandwidth is calculated as::
+
+   AVG_RD_BANDWIDTH_IN_GBPS = RD_BYTES / ELAPSED_TIME_IN_NS
+   AVG_WR_BANDWIDTH_IN_GBPS = WR_BYTES / ELAPSED_TIME_IN_NS
+
+The average request rate is calculated as::
+
+   AVG_RD_REQUEST_RATE = RD_REQ / CYCLES
+   AVG_WR_REQUEST_RATE = WR_REQ / CYCLES
+
+
+The average latency is calculated as::
+
+   FREQ_IN_GHZ = CYCLES / ELAPSED_TIME_IN_NS
+   AVG_LATENCY_IN_CYCLES = RD_CUM_OUTS / RD_REQ
+   AVERAGE_LATENCY_IN_NS = AVG_LATENCY_IN_CYCLES / FREQ_IN_GHZ
+
+The PMU events can be filtered based on the traffic source and destination.
+The source filter indicates the PCIE traffic initiator. The destination filter
+specifies the destination memory type, e.g. local system memory (CMEM), local
+GPU memory (GMEM), or remote memory. The local/remote classification of the
+destination filter is based on the home socket of the address, not where the
+data actually resides. The available filters are described in
+/sys/bus/event_source/devices/nvidia_pcie_pmu_<socket-id>_chiplet_<pcie-chiplet-id>/format/.
+
+The list of event filters:
+
+* Source filter:
+
+  * src_root_port: bitmap parameter to select the root port(s) in the PCIE
+    chiplet that initiates the traffic. i.e. "src_root_port=0xF" corresponds to
+    root port 0 to 3 in the chiplet.
+  * src_bdf: the BDF that initiates the traffic. This is a 16-bit value that
+    follows formula: (bus << 8) + (device << 3) + (function). For example, the
+    value of BDF 27:01.1 is 0x2781.
+  * src_bdf_en: enable the BDF filter. If this is set, the BDF filter value in
+    "src_bdf" is used to filter the traffic.
+
+  Note that Root-Port and BDF filters are mutually exclusive. If BDF filter is
+  enabled, the BDF filter value will be applied to all events.
+
+* Destination filter:
+
+  * dst_loc_cmem: if set, count events to local system memory (CMEM) address
+  * dst_loc_gmem: if set, count events to local GPU memory (GMEM) address
+  * dst_loc_pcie_p2p: if set, count events to local PCIE peer address
+  * dst_loc_pcie_cxl: if set, count events to local CXL memory address
+  * dst_rem: if set, count events to remote memory address
+
+If the source filter is not specified, the PMU will count events from all root
+ports. If the destination filter is not specified, the PMU will count events
+to all destinations.
+
+Example usage:
+
+* Count event id 0x0 from root port 0 of PCIE chiplet 0 on socket 0 targeting all
+  destinations::
+
+   perf stat -a -e nvidia_pcie_pmu_0_chiplet_0/event=0x0,root_port=0x1/
+
+* Count event id 0x1 from root port 0 and 1 of PCIE chiplet 1 on socket 0 and
+  targeting just local CMEM of socket 0::
+
+   perf stat -a -e nvidia_pcie_pmu_0_chiplet_1/event=0x1,root_port=0x3,dst_loc_cmem=0x1/
+
+* Count event id 0x2 from root port 0 of PCIE chiplet 2 on socket 1 targeting all
+  destinations::
+
+   perf stat -a -e nvidia_pcie_pmu_1_chiplet_2/event=0x2,root_port=0x1/
+
+* Count event id 0x3 from root port 0 and 1 of PCIE chiplet 3 on socket 1 and
+  targeting just local CMEM of socket 1::
+
+   perf stat -a -e nvidia_pcie_pmu_1_chiplet_3/event=0x3,root_port=0x3,dst_loc_cmem=0x1/
+
+* Count event id 0x4 from BDF 01:01.0 of PCIE chiplet 4 on socket 0 targeting all
+  destinations::
+
+   perf stat -a -e nvidia_pcie_pmu_0_chiplet_4/event=0x4,src_bdf=0x0180,src_bdf_en=0x1/
+
 .. _NVIDIA_T410_PMU_Traffic_Coverage_Section:
 
 Traffic Coverage
@@ -175,6 +277,9 @@ The PMU traffic coverage may vary dependent on the chip configuration:
     * Socket A CMEM:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_cmem
+      - PCIE PMU: destination filter = dst_loc_cmem
+
+        This PMU only counts traffic from PCIE device.
 
     * GPU A1 or A2 GMEM:
 
@@ -182,13 +287,25 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU can not distinguish GPU A1 and A2 memory and always count both.
 
+      - PCIE PMU: destination filter = dst_loc_gmem
+
+        This PMU only counts traffic from PCIE device.
+
     * Any CXLMEM of Socket A:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_other
 
+      - PCIE PMU: destination filter = dst_loc_pcie_cxl
+
+        This PMU only counts traffic from PCIE device.
+
     * Any memory of Socket B:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_rem
+
+      - PCIE PMU: destination filter = dst_loc_rem
+
+        This PMU only counts traffic from PCIE device.
 
   * Traffic from any device in Socket B to following memory types:
 
