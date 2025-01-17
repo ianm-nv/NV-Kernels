@@ -37,6 +37,7 @@ CONFIG_ARM64_WORKAROUND_TRBE_WRITE_OUT_OF_RANGE policy<{'arm64': 'y'}>
 CONFIG_ARM64_WORKAROUND_TRBE_WRITE_OUT_OF_RANGE note<'Required for Grace enablement'>
 
 CONFIG_CMA_SIZE_MBYTES                          policy<{'arm64': '32', 'arm64-nvidia': '128', 'arm64-nvidia-64k': '1024'}>
+CONFIG_CMA_SIZE_MBYTES                          note<'LP: #1823753'>
 
 CONFIG_CORESIGHT                                policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT                                note<'Required for Grace enablement'>
@@ -85,12 +86,6 @@ CONFIG_CORESIGHT_TPDM                           note<'Required for Grace enablem
 
 CONFIG_CORESIGHT_TRBE                           policy<{'arm64': 'm'}>
 CONFIG_CORESIGHT_TRBE                           note<'Required for Grace enablement'>
-
-CONFIG_PREEMPT_NONE                             policy<{'amd64': 'n', 'arm64': 'y'}>
-CONFIG_PREEMPT_NONE                             note<'Required for NVIDIA workloads'>
-
-CONFIG_PREEMPT_VOLUNTARY                        policy<{'amd64': 'y', 'arm64': 'n'}>
-CONFIG_PREEMPT_VOLUNTARY                        note<'Required for NVIDIA workloads'>
 
 CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND            policy<{'arm64': 'n'}>
 CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND            note<'Required for NVIDIA workloads'>
@@ -148,6 +143,12 @@ CONFIG_NOUVEAU_PLATFORM_DRIVER                  note<'Disable nouveau for NVIDIA
 
 CONFIG_PID_IN_CONTEXTIDR                        policy<{'arm64': 'y'}>
 CONFIG_PID_IN_CONTEXTIDR                        note<'Required for Grace enablement'>
+
+CONFIG_PREEMPT_NONE                             policy<{'amd64': 'n', 'arm64': 'y'}>
+CONFIG_PREEMPT_NONE                             note<'Required for NVIDIA workloads'>
+
+CONFIG_PREEMPT_VOLUNTARY                        policy<{'amd64': 'y', 'arm64': 'n'}>
+CONFIG_PREEMPT_VOLUNTARY                        note<'Required for NVIDIA workloads'>
 
 CONFIG_SAMPLE_CORESIGHT_SYSCFG                  policy<{'arm64': 'n'}>
 CONFIG_SAMPLE_CORESIGHT_SYSCFG                  note<'Required for Grace enablement'>
