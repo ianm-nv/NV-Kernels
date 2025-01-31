@@ -932,6 +932,7 @@ void start_kernel(void)
 	early_numa_node_init();
 	boot_cpu_hotplug_init();
 
+	pr_info("IANM - CCA DEV TEST - GUEST-V5 - HOST-V5\n");
 	pr_notice("Kernel command line: %s\n", saved_command_line);
 	/* parameters may set static keys */
 	jump_label_init();
