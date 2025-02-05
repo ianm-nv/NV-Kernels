@@ -1727,13 +1727,15 @@ static void split_large_buddy(struct zone *zone, struct page *page,
 	/* Caller removed page from freelist, buddy info cleared! */
 	VM_WARN_ON_ONCE(PageBuddy(page));
 
-	while (pfn != end_pfn) {
+	do {
 		int mt = get_pfnblock_migratetype(page, pfn);
 
 		__free_one_page(page, pfn, zone, pageblock_order, mt, FPI_NONE);
 		pfn += pageblock_nr_pages;
+		if (pfn == end_pfn)
+			break;
 		page = pfn_to_page(pfn);
-	}
+	} while (1);
 }
 
 /**
