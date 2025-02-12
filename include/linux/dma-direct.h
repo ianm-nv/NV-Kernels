@@ -98,7 +98,10 @@ static inline dma_addr_t phys_to_dma_unencrypted(struct device *dev,
  */
 static inline dma_addr_t phys_to_dma(struct device *dev, phys_addr_t paddr)
 {
-	return dma_addr_encrypted(__phys_to_dma(dev, paddr));
+	if (dev->tdi_enabled)
+		return dma_addr_encrypted(__phys_to_dma(dev, paddr));
+
+	return dma_addr_unencrypted(__phys_to_dma(dev, paddr));
 }
 
 static inline phys_addr_t dma_to_phys(struct device *dev, dma_addr_t dma_addr)

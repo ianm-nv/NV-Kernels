@@ -688,6 +688,7 @@ struct device {
 #ifdef CONFIG_IOMMU_DMA
 	bool			dma_iommu:1;
 #endif
+	bool			tdi_enabled:1;
 };
 
 /**
