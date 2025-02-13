@@ -105,7 +105,7 @@ static void xe_gt_tlb_fence_timeout(struct work_struct *work)
 }
 
 /**
- * xe_gt_tlb_invalidation_init - Initialize GT TLB invalidation state
+ * xe_gt_tlb_invalidation_init_early - Initialize GT TLB invalidation state
  * @gt: graphics tile
  *
  * Initialize GT TLB invalidation state, purely software initialization, should
@@ -113,7 +113,7 @@ static void xe_gt_tlb_fence_timeout(struct work_struct *work)
  *
  * Return: 0 on success, negative error code on error.
  */
-int xe_gt_tlb_invalidation_init(struct xe_gt *gt)
+int xe_gt_tlb_invalidation_init_early(struct xe_gt *gt)
 {
 	gt->tlb_invalidation.seqno = 1;
 	INIT_LIST_HEAD(&gt->tlb_invalidation.pending_fences);
