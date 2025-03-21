@@ -8,3 +8,7 @@ config RMEDA_HOST
 	select CRYPTO_ECDSA
 	select CRYPTO_RSA
 	select X509_CERTIFICATE_PARSER
+
+config RMEDA_GUEST
+	tristate "RMEDA Guest Library"
+	depends on PCI && ARM64
