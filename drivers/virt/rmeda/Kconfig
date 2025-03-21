@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config RMEDA_HOST
+	tristate "RMEDA Host Library"
+	depends on PCI && ARM64
+	select PCI_DOE
+	select PCI_IDE
+	select CRYPTO_ECDSA
+	select CRYPTO_RSA
+	select X509_CERTIFICATE_PARSER
