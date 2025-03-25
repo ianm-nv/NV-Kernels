@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config RMEDA_VFIO
+	tristate "RME DA VFIO Driver"
+	depends on PCI && ARM64
+	select VFIO_PCI_CORE
+	select PCI_DOE
+	select PCI_IDE
+	select RMEDA_HOST
+	help
+	  Say Y or M here if you want to be able to assign a device
+	  to a realm guest operating system.
+
+	  When in doubt, say N.
