@@ -170,11 +170,11 @@ CONFIG_ARCH_HAS_CPU_RESCTRL                     policy<{'amd64': 'y', 'arm64': '
 CONFIG_ARCH_SUPPORTS_HUGE_PFNMAP                policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_ARCH_SUPPORTS_PMD_PFNMAP                 policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_ARCH_SUPPORTS_PUD_PFNMAP                 policy<{'amd64': 'y'}>
-CONFIG_ARM_SMMU_V3_IOMMUFD                      policy<{'arm64': 'y'}>
 CONFIG_ARM64_MPAM                               policy<{'amd64': '-', 'arm64': 'y'}>
 CONFIG_ARM64_MPAM_DRIVER                        policy<{'arm64': 'y'}>
 CONFIG_ARM64_MPAM_RESCTRL_FS                    policy<{'amd64': '-', 'arm64': 'y'}>
 CONFIG_ARM_CPU_RESCTRL                          policy<{'amd64': '-', 'arm64': '-'}>
+CONFIG_ARM_SMMU_V3_IOMMUFD                      policy<{'arm64': 'y'}>
 CONFIG_AS_VERSION                               policy<{'amd64': '24200', 'arm64': '24200'}>
 CONFIG_AX88796B_RUST_PHY                        policy<{'amd64': '-'}>
 CONFIG_BINDGEN_VERSION_TEXT                     policy<{'amd64': '-'}>
@@ -189,6 +189,7 @@ CONFIG_GCC_VERSION                              policy<{'amd64': '130300', 'arm6
 CONFIG_IOMMUFD_DRIVER_CORE                      policy<{'amd64': 'y', 'arm64': 'y'}>
 CONFIG_IOMMUFD_VFIO_CONTAINER                   policy<{'arm64': 'y'}>
 CONFIG_CGROUP_RESCTRL                           policy<{'amd64': 'n', 'arm64': 'n'}>
+CONFIG_CPUFREQ_ARCH_CUR_FREQ                    policy<{'amd64': 'y'}>
 CONFIG_GCC_ASM_GOTO_OUTPUT_BROKEN               policy<{'amd64': '-', 'arm64': '-'}>
 CONFIG_GCC_VERSION                              policy<{'amd64': '130300', 'arm64': '130300'}>
 CONFIG_IOMMUFD_DRIVER_CORE                      policy<{'amd64': 'y', 'arm64': 'y'}>
@@ -218,4 +219,3 @@ CONFIG_TEGRA241_CMDQV                           policy<{'arm64': 'y'}>
 CONFIG_TOOLS_SUPPORT_RELR                       policy<{'amd64': 'y', 'arm64': '-'}>
 CONFIG_VFIO_CONTAINER                           policy<{'amd64': 'y', 'arm64': 'n'}>
 CONFIG_VFIO_IOMMU_TYPE1                         policy<{'amd64': 'm', 'arm64': '-'}>
-CONFIG_CPUFREQ_ARCH_CUR_FREQ                    policy<{'amd64': 'y'}>
