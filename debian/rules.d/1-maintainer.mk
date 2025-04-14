@@ -103,7 +103,7 @@ printchanges:
 		baseCommit=$$(git log --pretty=format:'%H %s' | \
 			gawk '/UBUNTU:\s*Ubuntu-.*$$/ { print $$1; exit }'); \
 	fi; \
-	git log "$$baseCommit"..HEAD | \
+	git log --no-color "$$baseCommit"..HEAD | \
 	$(DROOT)/scripts/misc/git-ubuntu-log
 
 .PHONY: insertchanges
