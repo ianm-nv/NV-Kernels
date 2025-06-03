@@ -8,6 +8,7 @@ metrics like memory bandwidth, latency, and utilization:
 * Unified Coherence Fabric (UCF)
 * PCIE
 * PCIE-TGT
+* CPU Memory
 
 PMU Driver
 ----------
@@ -276,6 +277,37 @@ Example usage:
 
    perf stat -a -e nvidia_pcie_tgt_pmu_0_chiplet_0/event=0x1,dst_bar_addr=0x10000,dst_bar_mask=0xFFF00,dst_bar_en=0x1/
 
+CPU Memory PMU
+--------------
+
+This PMU monitors bandwidth and latency events of memory read requests to local
+CPU DRAM:
+
+  * RD_REQ counters: count read requests (32B per request).
+  * RD_CUM_OUTS counters: accumulated outstanding request counter, which track
+    how many cycles the read requests are in flight.
+  * CYCLES counter: counts the number of elapsed cycles.
+
+The average bandwidth is calculated as::
+
+   AVG_BANDWIDTH_IN_GBPS = RD_REQ * 32 / ELAPSED_TIME_IN_NS
+
+The average latency is calculated as::
+
+   FREQ_IN_GHZ = CYCLES / ELAPSED_TIME_IN_NS
+   AVG_LATENCY_IN_CYCLES = RD_CUM_OUTS / RD_REQ
+   AVERAGE_LATENCY_IN_NS = AVG_LATENCY_IN_CYCLES / FREQ_IN_GHZ
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_t410_cpu_mem_pmu_<socket-id>.
+
+Example usage::
+
+   perf stat -a -e '{nvidia_t410_cpu_mem_pmu_0/rd_req/,nvidia_t410_cpu_mem_pmu_0/rd_cum_outs/,nvidia_t410_cpu_mem_pmu_0/cycles/}' sleep 1
+
+Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about
+the PMU traffic coverage.
+
 .. _NVIDIA_T410_PMU_Traffic_Coverage_Section:
 
 Traffic Coverage
@@ -322,6 +354,9 @@ The PMU traffic coverage may vary dependent on the chip configuration:
     * Socket A CMEM:
 
       - UCF PMU: source filter = src_loc_cpu, destination filter = dst_loc_cmem
+      - CPU Memory PMU:
+
+        This PMU counts read traffic to local CMEM from all sources.
 
     * GPU A1 or A2 GMEM:
 
@@ -359,6 +394,10 @@ The PMU traffic coverage may vary dependent on the chip configuration:
       - PCIE PMU: destination filter = dst_loc_cmem
 
         This PMU only counts traffic from PCIE device.
+
+      - CPU Memory PMU:
+
+        This PMU counts read traffic to local CMEM from all sources.
 
     * GPU A1 or A2 GMEM:
 
@@ -406,6 +445,9 @@ The PMU traffic coverage may vary dependent on the chip configuration:
     * Socket A CMEM:
 
       - UCF PMU: source filter = src_rem, destination filter = dst_loc_cmem
+      - CPU Memory PMU:
+
+        This PMU counts read traffic to local CMEM from all sources.
 
     * GPU A1 or A2 GMEM:
 
