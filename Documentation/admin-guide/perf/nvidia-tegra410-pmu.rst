@@ -9,6 +9,9 @@ metrics like memory bandwidth, latency, and utilization:
 * PCIE
 * PCIE-TGT
 * CPU Memory
+* NVLink-C2C
+* NV-CLink
+* NV-DLink
 
 PMU Driver
 ----------
@@ -308,6 +311,175 @@ Example usage::
 Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about
 the PMU traffic coverage.
 
+
+NVLink-C2C PMU
+--------------
+
+This PMU monitors memory read/write requests that are passing through the
+NVIDIA Chip-to-Chip (C2C) interface.
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_nvlink_c2c_pmu_<socket-id>.
+
+The list of events:
+
+  * IN_RD_CUM_OUTS: accumulated outstanding request (in cycles) of incoming read requests.
+  * IN_RD_REQ: the number of incoming read requests.
+  * IN_WR_CUM_OUTS: accumulated outstanding request (in cycles) of incoming write requests.
+  * IN_WR_REQ: the number of incoming write requests.
+  * OUT_RD_CUM_OUTS: accumulated outstanding request (in cycles) of outgoing read requests.
+  * OUT_RD_REQ: the number of outgoing read requests.
+  * OUT_WR_CUM_OUTS: accumulated outstanding request (in cycles) of outgoing write requests.
+  * OUT_WR_REQ: the number of outgoing write requests.
+  * CYCLES: NVLink-C2C interface cycle counts.
+
+The incoming events count the reads/writes from remote device to the SoC.
+The outgoing events count the reads/writes from the SoC to remote device.
+
+When the C2C interface is connected the SoC to GPU(s), the user can use the
+"gpu" parameter to select the GPU(s) to monitor. Each bit represents the GPU
+number, e.g. "gpu=0x1" corresponds to GPU 0 and "gpu=0x3" is for GPU 0 and 1.
+The PMU will monitor all GPUs by default if not specified.
+
+When connected to another SoC, only the read events are available.
+
+The events can be used to calculate the average latency of the read/write requests::
+
+   C2C_FREQ_IN_GHZ = CYCLES / ELAPSED_TIME_IN_NS
+
+   IN_RD_AVG_LATENCY_IN_CYCLES = IN_RD_CUM_OUTS / IN_RD_REQ
+   IN_RD_AVG_LATENCY_IN_NS = IN_RD_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   IN_WR_AVG_LATENCY_IN_CYCLES = IN_WR_CUM_OUTS / IN_WR_REQ
+   IN_WR_AVG_LATENCY_IN_NS = IN_WR_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   OUT_RD_AVG_LATENCY_IN_CYCLES = OUT_RD_CUM_OUTS / OUT_RD_REQ
+   OUT_RD_AVG_LATENCY_IN_NS = OUT_RD_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   OUT_WR_AVG_LATENCY_IN_CYCLES = OUT_WR_CUM_OUTS / OUT_WR_REQ
+   OUT_WR_AVG_LATENCY_IN_NS = OUT_WR_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+Example usage:
+
+  * Count incoming traffic from all GPUs connected via nvlink_c2c:
+
+    perf stat -a -e nvidia_nvlink_c2c_pmu_0/in_rd_req/ sleep 1
+
+  * Count incoming traffic from GPU 0 connected via nvlink_c2c:
+
+    perf stat -a -e nvidia_nvlink_c2c_pmu_0/in_rd_cum_outs,gpu=0x1/ sleep 1
+
+  * Count outgoing traffic from the SoC to all GPUs connected via nvlink_c2c:
+
+    perf stat -a -e nvidia_nvlink_c2c_pmu_0/out_rd_req/ sleep 1
+
+  * Count outgoing traffic from the SoC to GPU 0 connected via nvlink_c2c:
+
+    perf stat -a -e nvidia_nvlink_c2c_pmu_0/out_rd_cum_outs,gpu=0x1/ sleep 1
+
+Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about
+the PMU traffic coverage.
+
+NV-CLink PMU
+------------
+
+This PMU monitors memory read/write requests that are passing through the NV-CLINK
+interface.
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_nvclink_pmu_<socket-id>.
+
+The list of events:
+
+  * IN_RD_CUM_OUTS: accumulated outstanding request (in cycles) of incoming read requests.
+  * IN_RD_REQ: the number of incoming read requests.
+  * IN_WR_CUM_OUTS: accumulated outstanding request (in cycles) of incoming write requests.
+  * IN_WR_REQ: the number of incoming write requests.
+  * OUT_RD_CUM_OUTS: accumulated outstanding request (in cycles) of outgoing read requests.
+  * OUT_RD_REQ: the number of outgoing read requests.
+  * OUT_WR_CUM_OUTS: accumulated outstanding request (in cycles) of outgoing write requests.
+  * OUT_WR_REQ: the number of outgoing write requests.
+  * CYCLES: NV-CLINK interface cycle counts.
+
+The incoming events count the reads/writes from remote device to the SoC.
+The outgoing events count the reads/writes from the SoC to remote device.
+
+Each SoC can have multiple instances of NV-CLINK. The user can use the
+"instance" parameter to select the instance(s) to monitor. Each bit represents
+the instance number, e.g. "instance=0x1" corresponds to instance 0 and
+"instance=0x3" is for instance 0 and 1. The PMU will monitor all instances by
+default if not specified.
+
+When the NV-CLINK is connected to another SoC, only the read events are available.
+
+The events can be used to calculate the average latency of the read/write requests::
+
+   C2C_FREQ_IN_GHZ = CYCLES / ELAPSED_TIME_IN_NS
+
+   IN_RD_AVG_LATENCY_IN_CYCLES = IN_RD_CUM_OUTS / IN_RD_REQ
+   IN_RD_AVG_LATENCY_IN_NS = IN_RD_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   IN_WR_AVG_LATENCY_IN_CYCLES = IN_WR_CUM_OUTS / IN_WR_REQ
+   IN_WR_AVG_LATENCY_IN_NS = IN_WR_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   OUT_RD_AVG_LATENCY_IN_CYCLES = OUT_RD_CUM_OUTS / OUT_RD_REQ
+   OUT_RD_AVG_LATENCY_IN_NS = OUT_RD_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+   OUT_WR_AVG_LATENCY_IN_CYCLES = OUT_WR_CUM_OUTS / OUT_WR_REQ
+   OUT_WR_AVG_LATENCY_IN_NS = OUT_WR_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+Example usage:
+
+  * Count incoming traffic from all devices connected via NV-CLINK:
+
+    perf stat -a -e nvidia_nvclink_pmu_0/in_rd_req/ sleep 1
+
+  * Count incoming traffic from NV-CLINK instance 0:
+
+    perf stat -a -e nvidia_nvclink_pmu_0/in_rd_cum_outs,instance=0x1/ sleep 1
+
+  * Count outgoing traffic from the SoC to all devices connected via NV-CLINK:
+
+    perf stat -a -e nvidia_nvclink_pmu_0/out_rd_req/ sleep 1
+
+  * Count outgoing traffic from the SoC to devices connected via NV-CLINK instance 0 and 1:
+
+    perf stat -a -e nvidia_nvclink_pmu_0/out_rd_cum_outs,instance=0x3/ sleep 1
+
+Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about
+the PMU traffic coverage.
+
+NV-DLink PMU
+------------
+
+This PMU monitors memory read requests that are passing through the NV-DLINK
+interface. In Tegra410 SoC, this PMU only counts read traffic from SoC to CXL memory.
+
+The events and configuration options of this PMU device are described in sysfs,
+see /sys/bus/event_source/devices/nvidia_nvdlink_pmu_<socket-id>.
+
+The list of events:
+
+  * IN_RD_CUM_OUTS: accumulated outstanding request (in cycles) of incoming read requests from SoC to CXL memory.
+  * IN_RD_REQ: the number of incoming read requests from SoC to CXL memory.
+  * CYCLES: NV-DLINK interface cycle counts.
+
+The events can be used to calculate the average latency of the read/write requests::
+
+   C2C_FREQ_IN_GHZ = CYCLES / ELAPSED_TIME_IN_NS
+
+   IN_RD_AVG_LATENCY_IN_CYCLES = IN_RD_CUM_OUTS / IN_RD_REQ
+   IN_RD_AVG_LATENCY_IN_NS = IN_RD_AVG_LATENCY_IN_CYCLES / C2C_FREQ_IN_GHZ
+
+Example usage:
+
+  * Count read events from the SoC to CXL memory:
+
+    perf stat -a -e '{nvidia_nvdlink_pmu_0/in_rd_req/,nvidia_nvdlink_pmu_0/in_rd_cum_outs/}' sleep 1
+
+Please see :ref:`NVIDIA_T410_PMU_Traffic_Coverage_Section` for more info about
+the PMU traffic coverage.
+
 .. _NVIDIA_T410_PMU_Traffic_Coverage_Section:
 
 Traffic Coverage
@@ -364,6 +536,10 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU can not distinguish GPU A1 and A2 memory and always count both.
 
+      - NVLink-C2C PMU:
+
+        Use the outgoing events to count read/write trafficfrom all sources to GMEM.
+
     * Socket A PCIE BAR:
 
       - PCIE-TGT PMU:
@@ -382,9 +558,17 @@ The PMU traffic coverage may vary dependent on the chip configuration:
         BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
         filter and counts traffic from any source.
 
+      - NV-DLink PMU:
+
+        Use the incoming events to count read traffic from all sources.
+
     * Any memory of Socket B:
 
       - UCF PMU: source filter = src_loc_cpu, destination filter = dst_loc_rem
+
+      - NV-CLink PMU:
+
+        Use the outgoing events to count read/write traffic from all local sources.
 
   * Traffic from any non-CPU device of Socket A (i.e GPU or PCIE device) to following memory types:
 
@@ -399,6 +583,10 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU counts read traffic to local CMEM from all sources.
 
+      - NVLink-C2C PMU:
+
+        Use the incoming events to count read/write traffic from GPU A1 or A2.
+
     * GPU A1 or A2 GMEM:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_gmem
@@ -408,6 +596,10 @@ The PMU traffic coverage may vary dependent on the chip configuration:
       - PCIE PMU: destination filter = dst_loc_gmem
 
         This PMU only counts traffic from PCIE device.
+
+      - NVLink-C2C PMU:
+
+        Use the outgoing events to count read/write traffic from all sources to GMEM.
 
     * Socket A PCIE BAR:
 
@@ -432,6 +624,14 @@ The PMU traffic coverage may vary dependent on the chip configuration:
         BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
         filter and counts traffic from any source.
 
+      - NVLink-C2C PMU:
+
+        Use the incoming events to count read/write traffic from GPU A1 or A2.
+
+      - NV-DLink PMU:
+
+        Use the incoming events to count read traffic from all sources.
+
     * Any memory of Socket B:
 
       - UCF PMU: source filter = src_loc_noncpu, destination filter = dst_loc_rem
@@ -439,6 +639,14 @@ The PMU traffic coverage may vary dependent on the chip configuration:
       - PCIE PMU: destination filter = dst_loc_rem
 
         This PMU only counts traffic from PCIE device.
+
+      - NVLink-C2C PMU:
+
+        Use the incoming events to count read/write traffic from GPU A1 or A2.
+
+      - NV-CLink PMU:
+
+        Use the outgoing events to count read/write traffic from all local sources.
 
   * Traffic from any device in Socket B to following memory types:
 
@@ -449,11 +657,23 @@ The PMU traffic coverage may vary dependent on the chip configuration:
 
         This PMU counts read traffic to local CMEM from all sources.
 
+      - NV-CLink PMU:
+
+        Use the incoming events to count read/write traffic to any local memory.
+
     * GPU A1 or A2 GMEM:
 
       - UCF PMU: source filter = src_rem, destination filter = dst_loc_gmem
 
         This PMU can not distinguish GPU A1 and A2 memory and always count both.
+
+      - NVLink-C2C PMU:
+
+        Use the outgoing events to count read/write traffic from all sources to GMEM.
+
+      - NV-CLink PMU:
+
+        Use the incoming events to count read/write traffic to any local memory.
 
     * Socket A PCIE BAR:
 
@@ -472,6 +692,14 @@ The PMU traffic coverage may vary dependent on the chip configuration:
         root port or BAR address range. This PMU also counts traffic to PCIE
         BAR. It can not distinguish CXLMEM vs PCIE BAR. It does not have source
         filter and counts traffic from any source.
+
+      - NV-CLink PMU:
+
+        Use the incoming events to count read/write traffic to any local memory.
+
+      - NV-DLink PMU:
+
+        Use the incoming events to count read traffic from all sources.
 
 
 * **NVIDIA Tegra410 CPU-CPU Superchip**:
@@ -506,4 +734,5 @@ The PMU traffic coverage may vary dependent on the chip configuration:
    GMEM = GPU Memory (e.g. HBM)
    CMEM = CPU Memory (e.g. LPDDR5X)
 
-  The traffic coverage is similar to the ones in CPU-GPU Superchip.
+  The traffic coverage is similar to the ones in CPU-GPU Superchip, except that
+  the NVLink-C2C PMU coverage needs to be swapped with NV-CLink PMU.

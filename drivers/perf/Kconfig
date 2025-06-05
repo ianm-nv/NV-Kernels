@@ -309,4 +309,11 @@ config NVIDIA_TEGRA410_CPU_MEM_PMU
 	  Enable perf support for CPU memory counters monitoring on
 	  NVIDIA Tegra410 SoC.
 
+config NVIDIA_TEGRA410_C2C_PMU
+	tristate "NVIDIA Tegra410 C2C PMU"
+	depends on ARM64 && ACPI
+	help
+	  Enable perf support for counters in NVIDIA C2C interface of
+	  Tegra410 C2C SoC.
+
 endmenu
