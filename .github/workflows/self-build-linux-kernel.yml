@@ -21,7 +21,7 @@ jobs:
 
       - name: Set up kernel config (default)
         run: |
-          ./debian/scripts/misc/annotations -e --arch amd64 > .config
+          ./debian/scripts/misc/annotations -e --arch arm64 > .config
           sed -i '/^CONFIG_SYSTEM_TRUSTED_KEYS=.*/d' .config
           sed -i '/^CONFIG_SYSTEM_REVOCATION_KEYS=.*/d' .config
 
