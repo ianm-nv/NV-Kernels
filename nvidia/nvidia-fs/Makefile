@@ -19,7 +19,8 @@ obj-$(CONFIG_NVIDIA_FS) += nvidia-fs.o
 ccflags-y += -Wall
 
 # NVIDIA driver headers path (required for nv-p2p.h)
-NVIDIA_SRC_DIR := /usr/src/nvidia-570.172.08/nvidia
+NVIDIA_VERSION := $(shell modinfo nvidia 2>/dev/null | grep '^version:' | awk '{print $$2}' | head -1)
+NVIDIA_SRC_DIR := /usr/src/nvidia-$(NVIDIA_VERSION)/nvidia
 ccflags-y += -I$(NVIDIA_SRC_DIR)
 
 # Read GDS version from file

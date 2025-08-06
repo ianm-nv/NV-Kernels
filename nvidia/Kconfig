@@ -20,6 +20,7 @@ if NVIDIA_DRIVERS
 config NVIDIA_FS
 	tristate "NVIDIA GPU Direct Storage (GDS) filesystem driver"
 	default n
+	depends on MODULES
 	help
 	  Support for NVIDIA GPU Direct Storage (GDS) filesystem driver.
 	  
@@ -27,14 +28,16 @@ config NVIDIA_FS
 	  direct data transfers between storage and GPU memory, bypassing
 	  CPU memory for improved performance in GPU computing workloads.
 	  
-	  IMPORTANT: This driver requires NVIDIA proprietary driver headers
-	  (nv-p2p.h) and symbols. Build will fail if NVIDIA driver development
-	  headers are not installed.
+	  IMPORTANT: This driver requires NVIDIA proprietary driver symbols
+	  from nvidia.ko which are only available at runtime. Therefore,
+	  this driver can ONLY be built as a loadable module (=m), NOT
+	  built-in (=y).
+
+	  If you select Y (built-in), the kernel build will fail with
+	  undefined symbol errors. Always choose M (module) instead.
 	  
-	  Say Y here if you have NVIDIA GPUs and want to enable GDS support.
-	  
-	  To compile this driver as a module, choose M here: the
-	  module will be called nvidia-fs.
+	  If you have NVIDIA GPUs and want to enable GDS support, choose M
+	  to build as a module. The module will be called nvidia-fs.
 
 config NVIDIA_FS_STATS
 	bool "Enable NVIDIA-FS statistics support"
