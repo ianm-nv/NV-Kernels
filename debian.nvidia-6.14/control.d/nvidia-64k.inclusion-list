@@ -296,6 +296,7 @@ net/unix/unix_diag.ko
 net/vmw_vsock/*
 net/x25/*
 net/xfrm/*
+nvidia/nvidia-fs/nvidia-fs.ko
 ! find sound/core -name oss -prune -o -name *.ko -print
 sound/drivers/pcsp/snd-pcsp.ko
 sound/pci/hda/snd-hda-tegra.ko
