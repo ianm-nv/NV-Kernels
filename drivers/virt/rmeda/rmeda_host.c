@@ -36,7 +36,8 @@
 
 struct rmeda_host {
 	bool platform_dev;
-	bool ide_enabled;
+	bool sel_ide_enabled;
+	bool link_ide_enabled;
 	int sid;
 
 	struct pci_dev *epdev;
@@ -330,7 +331,7 @@ static int rmeda_host_init_ide(struct rmeda_host *rmeda_host)
 		goto err_disable_rp_stream;
 	}
 
-	rmeda_host->ide_enabled = true;
+	rmeda_host->sel_ide_enabled = true;
 
 	return 0;
 
@@ -386,8 +387,15 @@ static int rmeda_host_init_pdev_params(struct rmeda_host *rmeda_host,
 	params->root_id = pci_dev_id(rmeda_host->rpdev);
 	params->segment_id = pci_domain_nr(epdev->bus);
 	params->cert_id = 0;
-	params->flags = rmeda_host->ide_enabled ?
+	params->flags = (rmeda_host->sel_ide_enabled ||
+			 rmeda_host->link_ide_enabled) ?
 			RMI_PDEV_PARAMS_USE_IDE : 0;
+	params->flags |= (!rmeda_host->sel_ide_enabled &&
+			  rmeda_host->link_ide_enabled) ?
+			 RMI_PDEV_PARAMS_DISABLE_SEL_IDE : 0;
+	params->flags |= (rmeda_host->sel_ide_enabled &&
+			  !rmeda_host->link_ide_enabled) ?
+			 RMI_PDEV_PARAMS_DISABLE_LINK_IDE : 0;
 	params->flags |= !rmeda_host->platform_dev ?
 			 RMI_PDEV_PARAMS_USE_SPDM : 0;
 	params->ecam_addr = get_ecam_base(rmeda_host->epdev);
@@ -928,7 +936,7 @@ int rmeda_host_attach(struct rmeda_host *rmeda_host,
 	if (ret)
 		goto err_unregister_io_callback;
 
-	if (rmeda_host->ide_enabled && rmeda_host->platform_dev) {
+	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev) {
 		ret = kvm_realm_register_hsi_callback(kvm, RHI_DA_CONTROL_IDE, vdev_id,
 						      control_ide_call, rmeda_host);
 		if (ret)
@@ -947,7 +955,7 @@ int rmeda_host_attach(struct rmeda_host *rmeda_host,
 	goto done;
 
 err_unregister_hsi_ide_callback:
-	if (rmeda_host->ide_enabled && rmeda_host->platform_dev)
+	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev)
 		kvm_realm_unregister_hsi_callback(kvm, RHI_DA_CONTROL_IDE, vdev_id);
 err_unregister_hsi_da_callback:
 	kvm_realm_unregister_hsi_callback(kvm, RHI_DA_OBJECT_READ, vdev_id);
@@ -1012,7 +1020,7 @@ void rmeda_host_detach(struct rmeda_host *rmeda_host)
 	}
 
 	kvm_realm_unregister_vdev(rmeda_host->kvm, rmeda_host->vdev_id);
-	if (rmeda_host->ide_enabled && rmeda_host->platform_dev) {
+	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev) {
 		kvm_realm_unregister_hsi_callback(rmeda_host->kvm,
 						  RHI_DA_CONTROL_IDE,
 						  rmeda_host->vdev_id);
@@ -1253,7 +1261,8 @@ static int rmeda_host_init_pdev(struct rmeda_host *rmeda_host,
 	}
 
 	/* Enable the IDE in EP. RMM has enabled IDE in RP. */
-	pcie_ide_enable(rmeda_host->epdev, rmeda_host->sid);
+	if (rmeda_host->sel_ide_enabled)
+		pcie_ide_enable(rmeda_host->epdev, rmeda_host->sid);
 
 done:
 	free_page((unsigned long)params);
@@ -1295,6 +1304,8 @@ static void rmeda_host_deinit_pdev(struct rmeda_host *rmeda_host)
 
 struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 				       bool platform_dev,
+				       bool sel_ide_enabled,
+				       bool link_ide_enabled,
 				       struct resource *ncoh_res,
 				       size_t n_ncoh_res,
 				       struct resource *coh_res,
@@ -1316,6 +1327,8 @@ struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 	if (!rmeda_host)
 		return NULL;
 
+	rmeda_host->sel_ide_enabled = sel_ide_enabled;
+	rmeda_host->link_ide_enabled = link_ide_enabled;
 	rmeda_host->platform_dev = platform_dev;
 	rmeda_host->epdev = pdev;
 
@@ -1325,9 +1338,13 @@ struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 		goto err_config;
 	}
 
-	ret = rmeda_host_init_ide(rmeda_host);
-	if (ret)
-		pci_warn(rmeda_host->epdev, "IDE unsupported. Attempting registration w/o IDE\n");
+	if (sel_ide_enabled) {
+		ret = rmeda_host_init_ide(rmeda_host);
+		if (ret) {
+			pci_warn(rmeda_host->epdev, "IDE unsupported\n");
+			goto err_init_ide;
+		}
+	}
 
 	if (!rmeda_host->platform_dev) {
 		ret = probe_doe_mb(rmeda_host);
@@ -1356,8 +1373,9 @@ err_assign:
 	rmeda_host_deinit_io(rmeda_host);
 err_init_io:
 err_get_mbs:
-	if (rmeda_host->ide_enabled)
+	if (rmeda_host->sel_ide_enabled)
 		rmeda_host_deinit_ide(rmeda_host);
+err_init_ide:
 err_config:
 	kfree(rmeda_host);
 	return NULL;
@@ -1370,7 +1388,7 @@ void rmeda_host_unregister(struct rmeda_host *rmeda_host)
 		return;
 
 	rmeda_host_deinit_pdev(rmeda_host);
-	if (rmeda_host->ide_enabled)
+	if (rmeda_host->sel_ide_enabled)
 		rmeda_host_deinit_ide(rmeda_host);
 	rmeda_host_deinit_io(rmeda_host);
 	kfree(rmeda_host);
