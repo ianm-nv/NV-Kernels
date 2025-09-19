@@ -359,6 +359,9 @@ struct pdev_addr_range {
 #define RMI_PDEV_PARAMS_USE_COH		(1 << 2)
 #define RMI_PDEV_PARAMS_USE_P2P		(1 << 3)
 
+#define RMI_PDEV_PARAMS_DISABLE_SEL_IDE		(1UL << 62)
+#define RMI_PDEV_PARAMS_DISABLE_LINK_IDE	(1UL << 63)
+
 #define RMI_HASH_SHA_256		0
 #define RMI_HASH_SHA_512		1
 
