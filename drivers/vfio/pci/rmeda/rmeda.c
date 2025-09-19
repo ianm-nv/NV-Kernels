@@ -24,6 +24,14 @@
 static int platform_dev;
 module_param(platform_dev, int, 0660);
 
+/* If non-zero, link IDE is enabled. */
+static int enable_link_ide = 1;
+module_param(enable_link_ide, int, 0660);
+
+/* If non-zero, selective IDE is enabled. */
+static int enable_sel_ide = 1;
+module_param(enable_sel_ide, int, 0660);
+
 struct kvm_rme_device {
 	struct vfio_pci_core_device core_device;
 	struct rmeda_host *rmeda_host;
@@ -123,7 +131,8 @@ static int rme_da_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	dev_set_drvdata(&pdev->dev, &rme_dev->core_device);
 
 	rme_dev->rmeda_host = rmeda_host_register(pdev, platform_dev,
-						  true, true,
+						  enable_sel_ide,
+						  enable_link_ide,
 						  pdev->resource,
 						  DEVICE_COUNT_RESOURCE,
 						  NULL, 0);
