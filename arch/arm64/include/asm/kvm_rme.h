@@ -105,6 +105,7 @@ struct realm_vdev {
  * @params: Parameters for the RMI_REALM_CREATE command
  * @num_aux: The number of auxiliary pages required by the RMM
  * @vmid: VMID to be used by the RMM for the realm
+ * @mecid: MECID to be used by the RMM for the realm
  * @ia_bits: Number of valid Input Address bits in the IPA
  * @io_cbs: IO callbacks to be called when realm invokes RMI_EXIT_DEV_COMM
  */
@@ -125,6 +126,12 @@ struct realm {
 
 	struct list_head vdevs_list;
 	struct mutex vdevs_lock;
+	unsigned short mecid;
+	enum {
+		MEC_POLICY_UNCONFIGURED = 0,	/* Use shared for compatibility */
+		MEC_POLICY_PRIVATE,		/* Allocate private MECID */
+		MEC_POLICY_SHARED,		/* Use shared MECID */
+	} mec_policy;
 };
 
 /**
