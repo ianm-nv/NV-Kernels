@@ -371,6 +371,7 @@ static int verify_digests(struct pci_dev *dev, struct rmeda_guest *priv)
 
 		if (memcmp(reports[i].digest, digest, digest_size)) {
 			pci_err(dev, "invalid digest at #%d\n", i);
+			ret = -EINVAL;
 			goto err_free_sdesc;
 		}
 	}
