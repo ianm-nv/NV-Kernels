@@ -17,7 +17,6 @@ struct rmeda_guest_mapping;
 struct rmeda_guest *rmeda_guest_start_tdisp(struct pci_dev *dev);
 void rmeda_guest_stop_tdisp(struct rmeda_guest *priv);
 struct rmeda_guest_mapping *rmeda_guest_validate_mapping(struct rmeda_guest *priv,
-							 unsigned int resource_id,
 							 resource_size_t start,
 							 size_t size,
 							 bool coherent);
@@ -36,7 +35,6 @@ static inline void rmeda_guest_stop_tdisp(struct rmeda_guest *priv)
 
 static inline struct rmeda_guest_mapping *rmeda_guest_validate_mapping(
 		struct rmeda_guest *priv,
-		unsigned int resource_id,
 		resource_size_t start,
 		size_t size,
 		bool coherent)

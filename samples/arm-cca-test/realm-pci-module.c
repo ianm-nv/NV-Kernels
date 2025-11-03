@@ -257,7 +257,6 @@ static int pci_realm_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		if (!priv->rmeda_guest)
 			goto err_start_tdisp;
 		mapping = rmeda_guest_validate_mapping(priv->rmeda_guest,
-						       bar_id,
 						       pci_resource_start(dev, bar_id),
 						       bar_size,
 						       coherent);
