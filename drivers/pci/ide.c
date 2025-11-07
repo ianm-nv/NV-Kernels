@@ -433,6 +433,9 @@ void pci_ide_destroy(struct pci_dev *pdev)
 {
 	struct pci_ide *ide = pdev->ide;
 
+	if (!ide)
+		return;
+
 	if (ide->num_sel)
 		kfree(ide->sel);
 
