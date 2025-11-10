@@ -32,12 +32,12 @@ static inline void rmeda_host_unregister(struct rmeda_host *rmeda_host)
 {
 }
 
-struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
-				       bool platform_dev,
-				       struct resource *ncoh_res,
-				       size_t n_ncoh_res,
-				       struct resource *coh_res,
-				       size_t n_coh_res)
+static inline struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
+						     bool platform_dev,
+						     struct resource *ncoh_res,
+						     size_t n_ncoh_res,
+						     struct resource *coh_res,
+						     size_t n_coh_res)
 {
 	return NULL;
 }
