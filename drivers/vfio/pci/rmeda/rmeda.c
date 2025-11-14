@@ -130,7 +130,7 @@ static int rme_da_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 
 	dev_set_drvdata(&pdev->dev, &rme_dev->core_device);
 
-	rme_dev->rmeda_host = rmeda_host_register(pdev, platform_dev,
+	rme_dev->rmeda_host = rmeda_host_register(pdev, !platform_dev,
 						  enable_sel_ide,
 						  enable_link_ide,
 						  pdev->resource,
