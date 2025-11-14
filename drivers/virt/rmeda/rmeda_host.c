@@ -35,7 +35,7 @@
 #define PCI_DOE_PROTOCOL_SEC_CMA_SPDM		2
 
 struct rmeda_host {
-	bool platform_dev;
+	bool enable_spdm;
 	bool sel_ide_enabled;
 	bool link_ide_enabled;
 	int sid;
@@ -352,13 +352,13 @@ static int rmeda_host_deinit_ide(struct rmeda_host *rmeda_host)
 	return 0;
 }
 
-static size_t pdev_get_num_aux(bool platform_dev)
+static size_t pdev_get_num_aux(bool enable_spdm)
 {
 	unsigned long num_aux;
 	unsigned long flags;
 	int ret;
 
-	flags = platform_dev ?
+	flags = !enable_spdm ?
 		RMI_PDEV_PARAMS_USE_IDE :
 		(RMI_PDEV_PARAMS_USE_IDE |
 		 RMI_PDEV_PARAMS_USE_SPDM);
@@ -396,7 +396,7 @@ static int rmeda_host_init_pdev_params(struct rmeda_host *rmeda_host,
 	params->flags |= (rmeda_host->sel_ide_enabled &&
 			  !rmeda_host->link_ide_enabled) ?
 			 RMI_PDEV_PARAMS_DISABLE_LINK_IDE : 0;
-	params->flags |= !rmeda_host->platform_dev ?
+	params->flags |= rmeda_host->enable_spdm ?
 			 RMI_PDEV_PARAMS_USE_SPDM : 0;
 	params->ecam_addr = get_ecam_base(rmeda_host->epdev);
 	params->ide_sid = rmeda_host->sid;
@@ -420,7 +420,7 @@ static int rmeda_host_init_pdev_params(struct rmeda_host *rmeda_host,
 				     coh_res,
 				     n_coh_res);
 
-	params->num_aux = pdev_get_num_aux(rmeda_host->platform_dev);
+	params->num_aux = pdev_get_num_aux(rmeda_host->enable_spdm);
 	pr_debug("%s using %ld pdev aux granules\n", __func__, params->num_aux);
 	rmeda_host->num_aux = params->num_aux;
 	for (i = 0; i < params->num_aux; i++) {
@@ -513,7 +513,7 @@ static int doe_req_resp(struct rmeda_host *rmeda_host)
 	 * DOE is unsupported for platform attested devices, and
 	 * therefore the realm should never request DOE.
 	 */
-	if (rmeda_host->platform_dev)
+	if (!rmeda_host->enable_spdm)
 		return -EINVAL;
 
 	io_exit = &rmeda_host->dev_comm_params->exit;
@@ -936,7 +936,7 @@ int rmeda_host_attach(struct rmeda_host *rmeda_host,
 	if (ret)
 		goto err_unregister_io_callback;
 
-	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev) {
+	if (rmeda_host->sel_ide_enabled && !rmeda_host->enable_spdm) {
 		ret = kvm_realm_register_hsi_callback(kvm, RHI_DA_CONTROL_IDE, vdev_id,
 						      control_ide_call, rmeda_host);
 		if (ret)
@@ -955,7 +955,7 @@ int rmeda_host_attach(struct rmeda_host *rmeda_host,
 	goto done;
 
 err_unregister_hsi_ide_callback:
-	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev)
+	if (rmeda_host->sel_ide_enabled && !rmeda_host->enable_spdm)
 		kvm_realm_unregister_hsi_callback(kvm, RHI_DA_CONTROL_IDE, vdev_id);
 err_unregister_hsi_da_callback:
 	kvm_realm_unregister_hsi_callback(kvm, RHI_DA_OBJECT_READ, vdev_id);
@@ -1020,7 +1020,7 @@ void rmeda_host_detach(struct rmeda_host *rmeda_host)
 	}
 
 	kvm_realm_unregister_vdev(rmeda_host->kvm, rmeda_host->vdev_id);
-	if (rmeda_host->sel_ide_enabled && rmeda_host->platform_dev) {
+	if (rmeda_host->sel_ide_enabled && !rmeda_host->enable_spdm) {
 		kvm_realm_unregister_hsi_callback(rmeda_host->kvm,
 						  RHI_DA_CONTROL_IDE,
 						  rmeda_host->vdev_id);
@@ -1230,7 +1230,7 @@ static int rmeda_host_init_pdev(struct rmeda_host *rmeda_host,
 			   rmeda_host->cert_chain.buf, &rmeda_host->cert_chain.size);
 
 	/* Special case: Platform devices enter PDEV_READY immediately */
-	if (rmeda_host->platform_dev) {
+	if (!rmeda_host->enable_spdm) {
 		if (state != RMI_PDEV_READY) {
 			ret = -EIO;
 			goto err_stop_pdev;
@@ -1303,7 +1303,7 @@ static void rmeda_host_deinit_pdev(struct rmeda_host *rmeda_host)
 }
 
 struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
-				       bool platform_dev,
+				       bool enable_spdm,
 				       bool sel_ide_enabled,
 				       bool link_ide_enabled,
 				       struct resource *ncoh_res,
@@ -1329,7 +1329,7 @@ struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 
 	rmeda_host->sel_ide_enabled = sel_ide_enabled;
 	rmeda_host->link_ide_enabled = link_ide_enabled;
-	rmeda_host->platform_dev = platform_dev;
+	rmeda_host->enable_spdm = enable_spdm;
 	rmeda_host->epdev = pdev;
 
 	ret = rdev_walk_get_pcie(rmeda_host);
@@ -1346,7 +1346,7 @@ struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 		}
 	}
 
-	if (!rmeda_host->platform_dev) {
+	if (rmeda_host->enable_spdm) {
 		ret = probe_doe_mb(rmeda_host);
 		if (ret)
 			goto err_get_mbs;

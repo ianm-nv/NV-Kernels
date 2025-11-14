@@ -16,7 +16,7 @@ struct kvm;
 
 void rmeda_host_unregister(struct rmeda_host *rmeda_host);
 struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
-				       bool platform_dev,
+				       bool enable_spdm,
 				       bool sel_ide_enabled,
 				       bool link_ide_enabled,
 				       struct resource *ncoh_res,
@@ -35,7 +35,7 @@ static inline void rmeda_host_unregister(struct rmeda_host *rmeda_host)
 }
 
 static inline struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
-						     bool platform_dev,
+						     bool enable_spdm,
 						     bool sel_ide_enabled,
 						     bool link_ide_enabled,
 						     struct resource *ncoh_res,
