@@ -3,3 +3,4 @@
 obj-$(CONFIG_SAMPLE_ARM_CCA_TEST_SUITE) += module.o
 obj-$(CONFIG_SAMPLE_ARM_CCA_TEST_SUITE) += realm-pci-module.o
 obj-$(CONFIG_SAMPLE_ARM_CCA_TEST_SUITE) += qdev.o
+obj-$(CONFIG_SAMPLE_ARM_CCA_TEST_SUITE) += rmeda-cmem.o
