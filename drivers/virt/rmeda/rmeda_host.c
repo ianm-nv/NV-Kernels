@@ -36,6 +36,7 @@
 
 struct rmeda_host {
 	bool enable_spdm;
+	bool cxl_cmem_dev;
 	bool sel_ide_enabled;
 	bool link_ide_enabled;
 	int sid;
@@ -352,16 +353,11 @@ static int rmeda_host_deinit_ide(struct rmeda_host *rmeda_host)
 	return 0;
 }
 
-static size_t pdev_get_num_aux(bool enable_spdm)
+static size_t pdev_get_num_aux(unsigned long flags)
 {
 	unsigned long num_aux;
-	unsigned long flags;
 	int ret;
 
-	flags = !enable_spdm ?
-		RMI_PDEV_PARAMS_USE_IDE :
-		(RMI_PDEV_PARAMS_USE_IDE |
-		 RMI_PDEV_PARAMS_USE_SPDM);
 	ret = rmi_pdev_aux_count(flags, &num_aux);
 	if (ret)
 		return 0;
@@ -398,6 +394,8 @@ static int rmeda_host_init_pdev_params(struct rmeda_host *rmeda_host,
 			 RMI_PDEV_PARAMS_DISABLE_LINK_IDE : 0;
 	params->flags |= rmeda_host->enable_spdm ?
 			 RMI_PDEV_PARAMS_USE_SPDM : 0;
+	params->flags |= rmeda_host->cxl_cmem_dev ?
+			 RMI_PDEV_PARAMS_USE_CXL_CMEM : 0;
 	params->ecam_addr = get_ecam_base(rmeda_host->epdev);
 	params->ide_sid = rmeda_host->sid;
 	params->hash_algo = RMI_HASH_SHA_256;
@@ -420,7 +418,7 @@ static int rmeda_host_init_pdev_params(struct rmeda_host *rmeda_host,
 				     coh_res,
 				     n_coh_res);
 
-	params->num_aux = pdev_get_num_aux(rmeda_host->enable_spdm);
+	params->num_aux = pdev_get_num_aux(params->flags);
 	pr_debug("%s using %ld pdev aux granules\n", __func__, params->num_aux);
 	rmeda_host->num_aux = params->num_aux;
 	for (i = 0; i < params->num_aux; i++) {
@@ -1304,6 +1302,7 @@ static void rmeda_host_deinit_pdev(struct rmeda_host *rmeda_host)
 
 struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 				       bool enable_spdm,
+				       bool cxl_cmem_dev,
 				       bool sel_ide_enabled,
 				       bool link_ide_enabled,
 				       struct resource *ncoh_res,
@@ -1330,6 +1329,7 @@ struct rmeda_host *rmeda_host_register(struct pci_dev *pdev,
 	rmeda_host->sel_ide_enabled = sel_ide_enabled;
 	rmeda_host->link_ide_enabled = link_ide_enabled;
 	rmeda_host->enable_spdm = enable_spdm;
+	rmeda_host->cxl_cmem_dev = cxl_cmem_dev;
 	rmeda_host->epdev = pdev;
 
 	ret = rdev_walk_get_pcie(rmeda_host);
