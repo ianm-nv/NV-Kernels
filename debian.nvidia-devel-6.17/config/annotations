@@ -285,8 +285,4 @@ CONFIG_RESCTRL_IOMMU                            policy<{'amd64': '-', 'arm64': '
 CONFIG_RESCTRL_PMU                              policy<{'amd64': 'n', 'arm64': 'y'}>
 CONFIG_RESCTRL_RMID_DEPENDS_ON_CLOSID           policy<{'amd64': '-', 'arm64': 'y'}>
 
-CONFIG_AMPERE_ERRATUM_AC04_CPU_23               policy<{'arm64': 'y'}>
-CONFIG_ARM64_SME                                policy<{'arm64': 'y'}>
-CONFIG_EC_HUAWEI_GAOKUN                         policy<{'arm64': 'n'}>
 CONFIG_ARM64_MPAM_DRIVER_DEBUG                  policy<{'amd64': 'n', 'arm64': 'n'}>
-CONFIG_FTRACE_SORT_STARTUP_TEST                 policy<{'arm64': 'n'}>
