@@ -750,8 +750,8 @@ struct rmeda_guest_mapping *rmeda_guest_validate_mapping(struct rmeda_guest *pri
 	 * The range base must be aligned with its size. Use this information
 	 * to determine the offset within the range
 	 */
-	range_size = mmio_range[report_id].number_of_pages * SZ_4K;
-	start_phys += start & (range_size - 1);
+	range_size = ((u64)mmio_range[report_id].number_of_pages) * SZ_4K;
+	start_phys += (start & (range_size - 1));
 
 	mapping = kzalloc(sizeof(*mapping), GFP_KERNEL);
 	if (!mapping)
