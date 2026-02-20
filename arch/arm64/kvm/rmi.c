@@ -8,6 +8,9 @@
 #include <asm/rmi_cmds.h>
 #include <asm/virt.h>
 
+static unsigned long rmm_feat_reg0;
+static unsigned long rmm_feat_reg1;
+
 static int rmi_check_version(void)
 {
 	struct arm_smccc_res res;
@@ -47,10 +50,57 @@ static int rmi_check_version(void)
 	return 0;
 }
 
+static int rmi_configure(void)
+{
+	struct rmm_config *config __free(free_page) = NULL;
+	unsigned long ret;
+
+	config = (struct rmm_config *)get_zeroed_page(GFP_KERNEL);
+	if (!config)
+		return -ENOMEM;
+
+	switch (PAGE_SIZE) {
+	case SZ_4K:
+		config->rmi_granule_size = RMI_GRANULE_SIZE_4KB;
+		break;
+	case SZ_16K:
+		config->rmi_granule_size = RMI_GRANULE_SIZE_16KB;
+		break;
+	case SZ_64K:
+		config->rmi_granule_size = RMI_GRANULE_SIZE_64KB;
+		break;
+	default:
+		kvm_err("Unsupported PAGE_SIZE for RMM\n");
+		return -EINVAL;
+	}
+
+	ret = rmi_rmm_config_set(virt_to_phys(config));
+	if (ret) {
+		kvm_err("RMM config set failed\n");
+		return -EINVAL;
+	}
+
+	ret = rmi_rmm_activate();
+	if (ret) {
+		kvm_err("RMM activate failed\n");
+		return -ENXIO;
+	}
+
+	return 0;
+}
+
 void kvm_init_rmi(void)
 {
 	/* Continue without realm support if we can't agree on a version */
 	if (rmi_check_version())
+		return;
+
+	if (WARN_ON(rmi_features(0, &rmm_feat_reg0)))
+		return;
+	if (WARN_ON(rmi_features(1, &rmm_feat_reg1)))
+		return;
+
+	if (rmi_configure())
 		return;
 
 	/* Future patch will enable static branch kvm_rmi_is_available */
