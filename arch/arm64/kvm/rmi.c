@@ -4,6 +4,7 @@
  */
 
 #include <linux/kvm_host.h>
+#include <linux/memblock.h>
 
 #include <asm/kvm_pgtable.h>
 #include <asm/rmi_cmds.h>
@@ -56,6 +57,18 @@ static int rmi_check_version(void)
 	return 0;
 }
 
+/*
+ * These are the 'default' sizes when passing 0 as the tracking_region_size.
+ * TODO: Support other granule sizes
+ */
+#ifdef CONFIG_PAGE_SIZE_4KB
+#define RMM_GRANULE_TRACKING_SIZE	SZ_1G
+#elif defined(CONFIG_PAGE_SIZE_16KB)
+#define RMM_GRANULE_TRACKING_SIZE	SZ_32M
+#elif defined(CONFIG_PAGE_SIZE_64KB)
+#define RMM_GRANULE_TRACKING_SIZE	SZ_512M
+#endif
+
 static int rmi_configure(void)
 {
 	struct rmm_config *config __free(free_page) = NULL;
@@ -95,6 +108,80 @@ static int rmi_configure(void)
 	return 0;
 }
 
+static int rmi_verify_memory_tracking(phys_addr_t start, phys_addr_t end)
+{
+	start = ALIGN_DOWN(start, RMM_GRANULE_TRACKING_SIZE);
+	end = ALIGN(end, RMM_GRANULE_TRACKING_SIZE);
+
+	while (start < end) {
+		unsigned long ret, category, state;
+
+		ret = rmi_granule_tracking_get(start, &category, &state);
+		if (ret != RMI_SUCCESS ||
+		    state != RMI_TRACKING_FINE ||
+		    category != RMI_MEM_CATEGORY_CONVENTIONAL) {
+			/* TODO: Set granule tracking in this case */
+			kvm_err("Granule tracking for region isn't fine/conventional: %llx",
+				start);
+			return -ENODEV;
+		}
+		start += RMM_GRANULE_TRACKING_SIZE;
+	}
+
+	return 0;
+}
+
+static unsigned long rmi_l0gpt_size(void)
+{
+	return 1UL << (30 + FIELD_GET(RMI_FEATURE_REGISTER_1_L0GPTSZ,
+				      rmm_feat_reg1));
+}
+
+static int rmi_create_gpts(phys_addr_t start, phys_addr_t end)
+{
+	unsigned long l0gpt_sz = rmi_l0gpt_size();
+
+	start = ALIGN_DOWN(start, l0gpt_sz);
+	end = ALIGN(end, l0gpt_sz);
+
+	while (start < end) {
+		int ret = rmi_gpt_l1_create(start);
+
+		if (ret && ret != RMI_ERROR_GPT) {
+			/*
+			 * FIXME: Handle SRO so that memory can be donated for
+			 * the tables.
+			 */
+			kvm_err("GPT Level1 table missing for %llx\n", start);
+			return -ENOMEM;
+		}
+		start += l0gpt_sz;
+	}
+
+	return 0;
+}
+
+static int rmi_init_metadata(void)
+{
+	phys_addr_t start, end;
+	const struct memblock_region *r;
+
+	for_each_mem_region(r) {
+		int ret;
+
+		start = memblock_region_memory_base_pfn(r) << PAGE_SHIFT;
+		end = memblock_region_memory_end_pfn(r) << PAGE_SHIFT;
+		ret = rmi_verify_memory_tracking(start, end);
+		if (ret)
+			return ret;
+		ret = rmi_create_gpts(start, end);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
 static int rmm_check_features(void)
 {
 	if (kvm_lpa2_is_enabled() && !rmi_has_feature(RMI_FEATURE_REGISTER_0_LPA2)) {
@@ -119,6 +206,8 @@ void kvm_init_rmi(void)
 	if (rmm_check_features())
 		return;
 	if (rmi_configure())
+		return;
+	if (rmi_init_metadata())
 		return;
 
 	/* Future patch will enable static branch kvm_rmi_is_available */
