@@ -17,6 +17,27 @@ struct rtt_entry {
 	int ripas;
 };
 
+#define RMI_MAX_ADDR_LIST 256
+
+struct rmi_sro_state {
+	struct arm_smccc_1_2_regs regs;
+
+	unsigned long addr_count;
+	unsigned long addr_list[RMI_MAX_ADDR_LIST];
+};
+
+#define rmi_init_sro(...) ({						\
+	struct rmi_sro_state *sro = kmalloc_obj(*sro);			\
+	if (sro)							\
+		*sro = (struct rmi_sro_state){.regs = {__VA_ARGS__}};	\
+	sro;								\
+})
+
+#define rmi_smccc(...) do { \
+	arm_smccc_1_1_invoke(__VA_ARGS__); \
+} while (RMI_RETURN_STATUS(res.a0) == RMI_BUSY || \
+	 RMI_RETURN_STATUS(res.a0) == RMI_BLOCKED)
+
 /**
  * rmi_rmm_config_get() - Get the system configuration
  * @cfg_ptr: PA of a struct rmm_config
@@ -410,29 +431,7 @@ static inline int rmi_realm_destroy(unsigned long rd)
 }
 
 /**
- * rmi_rec_aux_count() - Get number of auxiliary granules required
- * @rd: PA of the RD
- * @aux_count: Number of granules written to this pointer
- *
- * A REC may require extra auxiliary granules to be delegated for the RMM to
- * store metadata (not visible to the normal world) in. This function provides
- * the number of granules that are required.
- *
- * Return: RMI return code
- */
-static inline int rmi_rec_aux_count(unsigned long rd, unsigned long *aux_count)
-{
-	struct arm_smccc_res res;
-
-	arm_smccc_1_1_invoke(SMC_RMI_REC_AUX_COUNT, rd, &res);
-
-	if (aux_count)
-		*aux_count = res.a1;
-	return res.a0;
-}
-
-/**
- * rmi_rec_create() - Create a REC
+ * rmi_rec_create_sro_init() - Init an SRO to create a REC
  * @rd: PA of the RD
  * @rec: PA of the target REC
  * @params: PA of REC parameters
@@ -440,33 +439,27 @@ static inline int rmi_rec_aux_count(unsigned long rd, unsigned long *aux_count)
  * Create a REC using the parameters specified in the struct rec_params pointed
  * to by @params.
  *
- * Return: RMI return code
+ * Returns: Allocated SRO object
  */
-static inline int rmi_rec_create(unsigned long rd, unsigned long rec,
-				 unsigned long params)
+static inline struct rmi_sro_state *
+rmi_rec_create_sro_init(unsigned long rd,
+			unsigned long rec,
+			unsigned long params)
 {
-	struct arm_smccc_res res;
-
-	arm_smccc_1_1_invoke(SMC_RMI_REC_CREATE, rd, rec, params, &res);
-
-	return res.a0;
+	return rmi_init_sro(SMC_RMI_REC_CREATE, rd, rec, params);
 }
 
 /**
- * rmi_rec_destroy() - Destroy a REC
+ * rmi_rec_destroy_sro_init() - Init an SRO to destroy a REC
  * @rec: PA of the target REC
  *
  * Destroys a REC. The REC must not be running.
  *
- * Return: RMI return code
+ * Return: Allocated SRO object
  */
-static inline int rmi_rec_destroy(unsigned long rec)
+static inline struct rmi_sro_state *rmi_rec_destroy_sro_init(unsigned long rec)
 {
-	struct arm_smccc_res res;
-
-	arm_smccc_1_1_invoke(SMC_RMI_REC_DESTROY, rec, &res);
-
-	return res.a0;
+	return rmi_init_sro(SMC_RMI_REC_DESTROY, rec);
 }
 
 /**

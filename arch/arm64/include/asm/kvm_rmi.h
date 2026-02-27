@@ -51,7 +51,6 @@ enum realm_state {
  * @state: The lifetime state machine for the realm
  * @rd: Kernel mapping of the Realm Descriptor (RD)
  * @params: Parameters for the RMI_REALM_CREATE command
- * @num_aux: The number of auxiliary pages required by the RMM
  * @ia_bits: Number of valid Input Address bits in the IPA
  */
 struct realm {
@@ -60,7 +59,6 @@ struct realm {
 	void *rd;
 	struct realm_params *params;
 
-	unsigned long num_aux;
 	unsigned int ia_bits;
 };
 
@@ -75,12 +73,6 @@ struct realm {
 struct realm_rec {
 	unsigned long mpidr;
 	void *rec_page;
-	/*
-	 * REC_PARAMS_AUX_GRANULES is the maximum number of 4K granules that
-	 * the RMM can require. The array is sized to be large enough for the
-	 * maximum number of host sized pages that could be required.
-	 */
-	struct page *aux_pages[(REC_PARAMS_AUX_GRANULES * SZ_4K) >> PAGE_SHIFT];
 	struct rec_run *run;
 };
 

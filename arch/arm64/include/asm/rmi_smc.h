@@ -38,7 +38,6 @@
 #define SMC_RMI_PSCI_COMPLETE			SMC_RMI_CALL(0x0164)
 #define SMC_RMI_FEATURES			SMC_RMI_CALL(0x0165)
 #define SMC_RMI_RTT_FOLD			SMC_RMI_CALL(0x0166)
-#define SMC_RMI_REC_AUX_COUNT			SMC_RMI_CALL(0x0167) //
 #define SMC_RMI_RTT_INIT_RIPAS			SMC_RMI_CALL(0x0168)
 #define SMC_RMI_RTT_SET_RIPAS			SMC_RMI_CALL(0x0169)
 #define SMC_RMI_VSMMU_CREATE			SMC_RMI_CALL(0x016a)
@@ -180,11 +179,18 @@
 #define RMI_ADDR_TYPE_SINGLE		1
 #define RMI_ADDR_TYPE_LIST		2
 
-#define RMI_ADDR_RANGE_SIZE(ar)		(FIELD_GET(GENMASK(1, 0), (ar)))
-#define RMI_ADDR_RANGE_COUNT(ar)	(FIELD_GET(GENMASK(PAGE_SHIFT - 1, 2), \
+#define RMI_ADDR_RANGE_SIZE_MASK	GENMASK(1, 0)
+#define RMI_ADDR_RANGE_COUNT_MASK	GENMASK(PAGE_SHIFT - 1, 2)
+#define RMI_ADDR_RANGE_ADDR_MASK	(PAGE_MASK & GENMASK(51, 0))
+#define RMI_ADDR_RANGE_STATE_MASK	BIT(63)
+
+#define RMI_ADDR_RANGE_SIZE(ar)		(FIELD_GET(RMI_ADDR_RANGE_SIZE_MASK, \
 						   (ar)))
-#define RMI_ADDR_RANGE_ADDR(ar)		((ar) & PAGE_MASK & GENMASK(51, 0))
-#define RMI_ADDR_RANGE_STATE(ar)	(FIELD_GET(BIT(63), (ar)))
+#define RMI_ADDR_RANGE_COUNT(ar)	(FIELD_GET(RMI_ADDR_RANGE_COUNT_MASK, \
+						   (ar)))
+#define RMI_ADDR_RANGE_ADDR(ar)		((ar) & RMI_ADDR_RANGE_ADDR_MASK)
+#define RMI_ADDR_RANGE_STATE(ar)	(FIELD_GET(RMI_ADDR_RANGE_STATE_MASK, \
+						   (ar)))
 
 enum rmi_ripas {
 	RMI_EMPTY = 0,
@@ -295,8 +301,6 @@ struct realm_params {
 
 #define REC_PARAMS_FLAG_RUNNABLE	BIT_ULL(0)
 
-#define REC_PARAMS_AUX_GRANULES		16
-
 struct rec_params {
 	union { /* 0x0 */
 		u64 flags;
@@ -312,14 +316,7 @@ struct rec_params {
 	};
 	union { /* 0x300 */
 		u64 gprs[REC_CREATE_NR_GPRS];
-		u8 padding3[0x500];
-	};
-	union { /* 0x800 */
-		struct {
-			u64 num_rec_aux;
-			u64 aux[REC_PARAMS_AUX_GRANULES];
-		};
-		u8 padding4[0x800];
+		u8 padding3[0xd00];
 	};
 };
 

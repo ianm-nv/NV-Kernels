@@ -20,6 +20,295 @@ static unsigned long rmm_feat_reg1;
 
 #define RMM_L2_BLOCK_SIZE	PMD_SIZE
 
+static int delegate_range(phys_addr_t phys, unsigned long size);
+static int undelegate_range(phys_addr_t phys, unsigned long size);
+
+static unsigned long donate_req_to_size(unsigned long donatereq)
+{
+	unsigned long unit_size = RMI_DONATE_SIZE(donatereq);
+
+	switch (unit_size) {
+	case 0:
+		return PAGE_SIZE;
+	case 1:
+		return PMD_SIZE;
+	case 2:
+		return PUD_SIZE;
+	case 3:
+		return P4D_SIZE;
+	}
+	unreachable();
+}
+
+static void rmi_smccc_invoke(struct arm_smccc_1_2_regs *regs_in,
+			     struct arm_smccc_1_2_regs *regs_out)
+{
+	struct arm_smccc_1_2_regs regs = *regs_in;
+	unsigned long status;
+
+	do {
+		arm_smccc_1_2_invoke(&regs, regs_out);
+		status = RMI_RETURN_STATUS(regs_out->a0);
+	} while (status == RMI_BUSY || status == RMI_BLOCKED);
+}
+
+static int rmi_sro_donate_contig(struct rmi_sro_state *sro,
+				 unsigned long sro_handle,
+				 unsigned long donatereq,
+				 struct arm_smccc_1_2_regs *out_regs,
+				 gfp_t gfp)
+{
+	unsigned long unit_size = RMI_DONATE_SIZE(donatereq);
+	unsigned long count = RMI_DONATE_COUNT(donatereq);
+	unsigned long state = RMI_DONATE_STATE(donatereq);
+	unsigned long size;
+	unsigned long addr_range;
+	struct page *pages;
+	phys_addr_t phys;
+	struct arm_smccc_1_2_regs regs = {
+		SMC_RMI_OP_MEM_DONATE,
+		sro_handle
+	};
+
+	for (int i = 0; i < sro->addr_count; i++) {
+		unsigned long entry = sro->addr_list[i];
+
+		if (RMI_ADDR_RANGE_SIZE(entry) == unit_size &&
+		    RMI_ADDR_RANGE_COUNT(entry) == count &&
+		    RMI_ADDR_RANGE_STATE(entry) == state) {
+			sro->addr_count--;
+			swap(sro->addr_list[sro->addr_count],
+			     sro->addr_list[i]);
+
+			goto out;
+		}
+	}
+
+	size = donate_req_to_size(donatereq) * count;
+
+	pages = alloc_pages(gfp, get_order(size));
+	if (!pages)
+		return -ENOMEM;
+	phys = page_to_phys(pages);
+
+	if (state == RMI_OP_MEM_DELEGATED) {
+		if (delegate_range(phys, size)) {
+			__free_pages(pages, get_order(size));
+			return -ENXIO;
+		}
+	}
+
+	addr_range = phys & RMI_ADDR_RANGE_ADDR_MASK;
+	FIELD_MODIFY(RMI_ADDR_RANGE_SIZE_MASK, &addr_range, unit_size);
+	FIELD_MODIFY(RMI_ADDR_RANGE_COUNT_MASK, &addr_range, count);
+	FIELD_MODIFY(RMI_ADDR_RANGE_STATE_MASK, &addr_range, state);
+
+	sro->addr_list[sro->addr_count] = addr_range;
+
+out:
+	regs.a2 = virt_to_phys(&sro->addr_list[sro->addr_count]);
+	regs.a3 = 1;
+	rmi_smccc_invoke(&regs, out_regs);
+
+	unsigned long donated_granules = out_regs->a1;
+
+	WARN_ON(donated_granules > 1);
+	if (WARN_ON(donated_granules == 0)) {
+		sro->addr_count++;
+		return 0;
+	}
+
+	return 0;
+}
+
+static int rmi_sro_donate_noncontig(struct rmi_sro_state *sro,
+				    unsigned long sro_handle,
+				    unsigned long donatereq,
+				    struct arm_smccc_1_2_regs *out_regs,
+				    gfp_t gfp)
+{
+	unsigned long unit_size = RMI_DONATE_SIZE(donatereq);
+	unsigned long count = RMI_DONATE_COUNT(donatereq);
+	unsigned long state = RMI_DONATE_STATE(donatereq);
+	unsigned long found = 0;
+	unsigned long addr_list_start = sro->addr_count;
+	struct arm_smccc_1_2_regs regs = {
+		SMC_RMI_OP_MEM_DONATE,
+		sro_handle
+	};
+
+	for (int i = 0; i < addr_list_start && found < count; i++) {
+		unsigned long entry = sro->addr_list[i];
+
+		if (RMI_ADDR_RANGE_SIZE(entry) == unit_size &&
+		    RMI_ADDR_RANGE_COUNT(entry) == 1 &&
+		    RMI_ADDR_RANGE_STATE(entry) == state) {
+			addr_list_start--;
+			swap(sro->addr_list[addr_list_start],
+			     sro->addr_list[i]);
+			found++;
+			i--;
+		}
+	}
+
+	while (found < count) {
+		unsigned long addr_range;
+		unsigned long size = donate_req_to_size(donatereq);
+
+		struct page *pages = alloc_pages(gfp, get_order(size));
+		phys_addr_t phys;
+
+		if (!pages)
+			return -ENOMEM;
+
+		phys = page_to_phys(pages);
+
+		if (state == RMI_OP_MEM_DELEGATED) {
+			if (delegate_range(phys, size)) {
+				__free_pages(pages, get_order(size));
+				return -ENXIO;
+			}
+		}
+
+		addr_range = phys & RMI_ADDR_RANGE_ADDR_MASK;
+		FIELD_MODIFY(RMI_ADDR_RANGE_SIZE_MASK, &addr_range, unit_size);
+		FIELD_MODIFY(RMI_ADDR_RANGE_COUNT_MASK, &addr_range, 1);
+		FIELD_MODIFY(RMI_ADDR_RANGE_STATE_MASK, &addr_range, state);
+
+		sro->addr_list[sro->addr_count++] = addr_range;
+		found++;
+	}
+
+	regs.a2 = virt_to_phys(&sro->addr_list[addr_list_start]);
+	regs.a3 = found;
+	rmi_smccc_invoke(&regs, out_regs);
+
+	unsigned long donated_granules = out_regs->a1;
+
+	while (donated_granules < found) {
+		swap(sro->addr_list[addr_list_start++],
+		     sro->addr_list[--sro->addr_count]);
+		found--;
+	}
+	sro->addr_count -= donated_granules;
+
+	return 0;
+}
+
+static int rmi_sro_donate(struct rmi_sro_state *sro,
+			  unsigned long sro_handle,
+			  unsigned long donatereq,
+			  struct arm_smccc_1_2_regs *regs,
+			  gfp_t gfp)
+{
+	unsigned long count = RMI_DONATE_COUNT(donatereq);
+
+	if (WARN_ON(!count))
+		return 0;
+
+	if (RMI_DONATE_CONTIG(donatereq)) {
+		return rmi_sro_donate_contig(sro, sro_handle, donatereq,
+					     regs, gfp);
+	} else {
+		return rmi_sro_donate_noncontig(sro, sro_handle, donatereq,
+						regs, gfp);
+	}
+}
+
+static int rmi_sro_reclaim(struct rmi_sro_state *sro,
+			   unsigned long sro_handle,
+			   struct arm_smccc_1_2_regs *out_regs)
+{
+	struct arm_smccc_1_2_regs regs = {
+		SMC_RMI_OP_MEM_RECLAIM,
+		sro_handle,
+		virt_to_phys(&sro->addr_list[sro->addr_count]),
+		RMI_MAX_ADDR_LIST - sro->addr_count
+	};
+	rmi_smccc_invoke(&regs, out_regs);
+	sro->addr_count += out_regs->a1;
+
+	return 0;
+}
+
+static void rmi_sro_free(struct rmi_sro_state *sro)
+{
+	for (int i = 0; i < sro->addr_count; i++) {
+		unsigned long entry = sro->addr_list[i];
+		unsigned long addr = RMI_ADDR_RANGE_ADDR(entry);
+		unsigned long unit_size = RMI_ADDR_RANGE_SIZE(entry);
+		unsigned long count = RMI_ADDR_RANGE_COUNT(entry);
+		unsigned long state = RMI_ADDR_RANGE_STATE(entry);
+		unsigned long size = donate_req_to_size(unit_size) * count;
+
+		if (state == RMI_OP_MEM_DELEGATED) {
+			if (WARN_ON(undelegate_range(addr, size))) {
+				/* Leak the pages */
+				continue;
+			}
+		}
+		__free_pages(phys_to_page(addr), get_order(size));
+	}
+
+	sro->addr_count = 0;
+}
+
+DEFINE_FREE(sro, struct rmi_sro_state *, if (_T) rmi_sro_free(_T))
+
+static unsigned long rmi_sro_execute(struct rmi_sro_state *sro)
+{
+	unsigned long sro_handle;
+	struct arm_smccc_1_2_regs regs;
+	struct arm_smccc_1_2_regs *regs_in = &sro->regs;
+
+	rmi_smccc_invoke(regs_in, &regs);
+
+	sro_handle = regs.a1;
+
+	while (RMI_RETURN_STATUS(regs.a0) == RMI_INCOMPLETE) {
+		bool can_cancel = RMI_RETURN_CANCANCEL(regs.a0);
+		int ret;
+
+		switch (RMI_RETURN_MEMREQ(regs.a0)) {
+		case RMI_OP_MEM_REQ_NONE:
+			regs = (struct arm_smccc_1_2_regs){
+				SMC_RMI_OP_CONTINUE, sro_handle, 0
+			};
+			rmi_smccc_invoke(&regs, &regs);
+			break;
+		case RMI_OP_MEM_REQ_DONATE:
+			ret = rmi_sro_donate(sro, sro_handle, regs.a2, &regs,
+					     GFP_KERNEL);
+			break;
+		case RMI_OP_MEM_REQ_RECLAIM:
+			ret = rmi_sro_reclaim(sro, sro_handle, &regs);
+			break;
+		default:
+			ret = WARN_ON(1);
+			break;
+		}
+
+		if (ret) {
+			if (can_cancel) {
+				/*
+				 * FIXME: Handle cancelling properly!
+				 *
+				 * If the operation has failed due to memory
+				 * allocation failure then the information on
+				 * the memory allocation should be saved, so
+				 * that the allocation can be repeated outside
+				 * of any context which prevented the
+				 * allocation.
+				 */
+			}
+			if (WARN_ON(ret))
+				return ret;
+		}
+	}
+
+	return regs.a0;
+}
+
 static inline unsigned long rmi_rtt_level_mapsize(int level)
 {
 	if (WARN_ON(level > RMM_RTT_MAX_LEVEL))
@@ -795,12 +1084,6 @@ static int realm_create_rd(struct kvm *kvm)
 		goto out_undelegate_tables;
 	}
 
-	if (WARN_ON(rmi_rec_aux_count(rd_phys, &realm->num_aux))) {
-		WARN_ON(rmi_realm_destroy(rd_phys));
-		r = -ENXIO;
-		goto out_undelegate_tables;
-	}
-
 	realm->rd = rd;
 	WRITE_ONCE(realm->state, REALM_STATE_NEW);
 	/* The realm is up, free the parameters.  */
@@ -1432,65 +1715,9 @@ int noinstr kvm_rec_enter(struct kvm_vcpu *vcpu)
 	return ret;
 }
 
-static void free_rec_aux(struct page **aux_pages,
-			 unsigned int num_aux)
-{
-	unsigned int i;
-	unsigned int page_count = 0;
-
-	for (i = 0; i < num_aux; i++) {
-		struct page *aux_page = aux_pages[page_count++];
-		phys_addr_t aux_page_phys = page_to_phys(aux_page);
-
-		if (!WARN_ON(undelegate_page(aux_page_phys)))
-			__free_page(aux_page);
-		aux_page_phys += PAGE_SIZE;
-	}
-}
-
-static int alloc_rec_aux(struct page **aux_pages,
-			 u64 *aux_phys_pages,
-			 unsigned int num_aux)
-{
-	struct page *aux_page;
-	unsigned int i;
-	int ret;
-
-	for (i = 0; i < num_aux; i++) {
-		phys_addr_t aux_page_phys;
-
-		aux_page = alloc_page(GFP_KERNEL);
-		if (!aux_page) {
-			ret = -ENOMEM;
-			goto out_err;
-		}
-
-		aux_page_phys = page_to_phys(aux_page);
-		if (delegate_page(aux_page_phys)) {
-			ret = -ENXIO;
-			goto err_undelegate;
-		}
-		aux_phys_pages[i] = aux_page_phys;
-		aux_pages[i] = aux_page;
-	}
-
-	return 0;
-err_undelegate:
-	while (i > 0) {
-		i--;
-		if (WARN_ON(undelegate_page(aux_phys_pages[i]))) {
-			/* Leak the page if the undelegate fails */
-			goto out_err;
-		}
-	}
-	__free_page(aux_page);
-out_err:
-	free_rec_aux(aux_pages, i);
-	return ret;
-}
-
 static int kvm_create_rec(struct kvm_vcpu *vcpu)
 {
+	struct rmi_sro_state *sro __free(sro) = NULL;
 	struct user_pt_regs *vcpu_regs = vcpu_gp_regs(vcpu);
 	unsigned long mpidr = kvm_vcpu_get_mpidr_aff(vcpu);
 	struct realm *realm = &vcpu->kvm->arch.realm;
@@ -1538,18 +1765,17 @@ static int kvm_create_rec(struct kvm_vcpu *vcpu)
 		goto out_free_pages;
 	}
 
-	r = alloc_rec_aux(rec->aux_pages, params->aux, realm->num_aux);
-	if (r)
-		goto out_undelegate_rmm_rec;
-
-	params->num_rec_aux = realm->num_aux;
 	params->mpidr = mpidr;
 
-	if (rmi_rec_create(virt_to_phys(realm->rd),
-			   rec_page_phys,
-			   virt_to_phys(params))) {
+	sro = rmi_rec_create_sro_init(virt_to_phys(realm->rd),
+				      rec_page_phys, virt_to_phys(params));
+	if (!sro) {
+		r = -ENOMEM;
+		goto out_undelegate_rmm_rec;
+	}
+	if (rmi_sro_execute(sro)) {
 		r = -ENXIO;
-		goto out_free_rec_aux;
+		goto out_undelegate_rmm_rec;
 	}
 
 	rec->mpidr = mpidr;
@@ -1557,8 +1783,6 @@ static int kvm_create_rec(struct kvm_vcpu *vcpu)
 	free_page((unsigned long)params);
 	return 0;
 
-out_free_rec_aux:
-	free_rec_aux(rec->aux_pages, realm->num_aux);
 out_undelegate_rmm_rec:
 	if (WARN_ON(undelegate_page(rec_page_phys)))
 		rec->rec_page = NULL;
@@ -1572,7 +1796,7 @@ out_free_pages:
 
 void kvm_destroy_rec(struct kvm_vcpu *vcpu)
 {
-	struct realm *realm = &vcpu->kvm->arch.realm;
+	struct rmi_sro_state *sro __free(sro) = NULL;
 	struct realm_rec *rec = &vcpu->arch.rec;
 	unsigned long rec_page_phys;
 
@@ -1588,15 +1812,12 @@ void kvm_destroy_rec(struct kvm_vcpu *vcpu)
 
 	rec_page_phys = virt_to_phys(rec->rec_page);
 
-	/*
-	 * The REC and any AUX pages cannot be reclaimed until the REC is
-	 * destroyed. So if the REC destroy fails then the REC page and any AUX
-	 * pages will be leaked.
-	 */
-	if (WARN_ON(rmi_rec_destroy(rec_page_phys)))
+	sro = rmi_rec_destroy_sro_init(rec_page_phys);
+	if (WARN_ON(!sro))
 		return;
 
-	free_rec_aux(rec->aux_pages, realm->num_aux);
+	if (WARN_ON(rmi_sro_execute(sro)))
+		return;
 
 	free_delegated_page(rec_page_phys);
 }
