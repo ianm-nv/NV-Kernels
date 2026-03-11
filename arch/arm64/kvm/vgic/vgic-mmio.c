@@ -467,21 +467,35 @@ int vgic_uaccess_write_cpending(struct kvm_vcpu *vcpu,
  * userspace accesses to the VGIC state already require all VCPUs to be
  * stopped, and only the VCPU itself can modify its private interrupts
  * active state, which guarantees that the VCPU is not running.
+ *
+ * For GICv3 private interrupts accessed from the owning vCPU, neither the
+ * config_lock nor the halt are needed: the owning vCPU is the only one that
+ * can modify its private interrupt active state, and it cannot race with
+ * itself.  The per-IRQ spinlock in the read/write path provides sufficient
+ * serialization.  Skipping the VM-wide config_lock here avoids O(n) mutex
+ * contention when n vCPUs concurrently access their own redistributors
+ * (e.g. during GIC initialization at boot).
  */
+static bool vgic_access_active_needs_lock(struct kvm_vcpu *vcpu, u32 intid)
+{
+	if (vcpu->kvm->arch.vgic.vgic_model == KVM_DEV_TYPE_ARM_VGIC_V3 &&
+	    vcpu == kvm_get_running_vcpu() &&
+	    intid < VGIC_NR_PRIVATE_IRQS)
+		return false;
+
+	return true;
+}
+
 static void vgic_access_active_prepare(struct kvm_vcpu *vcpu, u32 intid)
 {
-	if ((vcpu->kvm->arch.vgic.vgic_model == KVM_DEV_TYPE_ARM_VGIC_V3 &&
-	     vcpu != kvm_get_running_vcpu()) ||
-	    intid >= VGIC_NR_PRIVATE_IRQS)
+	if (vgic_access_active_needs_lock(vcpu, intid))
 		kvm_arm_halt_guest(vcpu->kvm);
 }
 
 /* See vgic_access_active_prepare */
 static void vgic_access_active_finish(struct kvm_vcpu *vcpu, u32 intid)
 {
-	if ((vcpu->kvm->arch.vgic.vgic_model == KVM_DEV_TYPE_ARM_VGIC_V3 &&
-	     vcpu != kvm_get_running_vcpu()) ||
-	    intid >= VGIC_NR_PRIVATE_IRQS)
+	if (vgic_access_active_needs_lock(vcpu, intid))
 		kvm_arm_resume_guest(vcpu->kvm);
 }
 
@@ -513,15 +527,18 @@ unsigned long vgic_mmio_read_active(struct kvm_vcpu *vcpu,
 				    gpa_t addr, unsigned int len)
 {
 	u32 intid = VGIC_ADDR_TO_INTID(addr, 1);
+	bool need_lock = vgic_access_active_needs_lock(vcpu, intid);
 	u32 val;
 
-	mutex_lock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_lock(&vcpu->kvm->arch.config_lock);
 	vgic_access_active_prepare(vcpu, intid);
 
 	val = __vgic_mmio_read_active(vcpu, addr, len);
 
 	vgic_access_active_finish(vcpu, intid);
-	mutex_unlock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_unlock(&vcpu->kvm->arch.config_lock);
 
 	return val;
 }
@@ -609,14 +626,17 @@ void vgic_mmio_write_cactive(struct kvm_vcpu *vcpu,
 			     unsigned long val)
 {
 	u32 intid = VGIC_ADDR_TO_INTID(addr, 1);
+	bool need_lock = vgic_access_active_needs_lock(vcpu, intid);
 
-	mutex_lock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_lock(&vcpu->kvm->arch.config_lock);
 	vgic_access_active_prepare(vcpu, intid);
 
 	__vgic_mmio_write_cactive(vcpu, addr, len, val);
 
 	vgic_access_active_finish(vcpu, intid);
-	mutex_unlock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_unlock(&vcpu->kvm->arch.config_lock);
 }
 
 int vgic_mmio_uaccess_write_cactive(struct kvm_vcpu *vcpu,
@@ -646,14 +666,17 @@ void vgic_mmio_write_sactive(struct kvm_vcpu *vcpu,
 			     unsigned long val)
 {
 	u32 intid = VGIC_ADDR_TO_INTID(addr, 1);
+	bool need_lock = vgic_access_active_needs_lock(vcpu, intid);
 
-	mutex_lock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_lock(&vcpu->kvm->arch.config_lock);
 	vgic_access_active_prepare(vcpu, intid);
 
 	__vgic_mmio_write_sactive(vcpu, addr, len, val);
 
 	vgic_access_active_finish(vcpu, intid);
-	mutex_unlock(&vcpu->kvm->arch.config_lock);
+	if (need_lock)
+		mutex_unlock(&vcpu->kvm->arch.config_lock);
 }
 
 int vgic_mmio_uaccess_write_sactive(struct kvm_vcpu *vcpu,
