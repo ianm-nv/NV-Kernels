@@ -625,18 +625,19 @@ void vgic_mmio_write_cactive(struct kvm_vcpu *vcpu,
 			     gpa_t addr, unsigned int len,
 			     unsigned long val)
 {
-	u32 intid = VGIC_ADDR_TO_INTID(addr, 1);
-	bool need_lock = vgic_access_active_needs_lock(vcpu, intid);
-
-	if (need_lock)
-		mutex_lock(&vcpu->kvm->arch.config_lock);
-	vgic_access_active_prepare(vcpu, intid);
-
+	/*
+	 * Clearing active state is safe without the config_lock and without
+	 * halting other vCPUs.  Each IRQ's active bit is cleared under its
+	 * own irq_lock in vgic_mmio_change_active(), which prevents races
+	 * with LR sync and migration.  Clearing an already-inactive IRQ is
+	 * a harmless no-op, so even if an IRQ migrates between loop
+	 * iterations the result is correct.
+	 *
+	 * Skipping the halt avoids 31 stop-the-world IPI storms during
+	 * gic_dist_init() when the guest writes GICD_ICACTIVERn for every
+	 * SPI range -- a major bottleneck with 100+ vCPUs.
+	 */
 	__vgic_mmio_write_cactive(vcpu, addr, len, val);
-
-	vgic_access_active_finish(vcpu, intid);
-	if (need_lock)
-		mutex_unlock(&vcpu->kvm->arch.config_lock);
 }
 
 int vgic_mmio_uaccess_write_cactive(struct kvm_vcpu *vcpu,
