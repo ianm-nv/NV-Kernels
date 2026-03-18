@@ -5,11 +5,17 @@
 
 #include <linux/kvm_host.h>
 
+#include <asm/kvm_pgtable.h>
 #include <asm/rmi_cmds.h>
 #include <asm/virt.h>
 
 static unsigned long rmm_feat_reg0;
 static unsigned long rmm_feat_reg1;
+
+static bool rmi_has_feature(unsigned long feature)
+{
+	return !!u64_get_bits(rmm_feat_reg0, feature);
+}
 
 static int rmi_check_version(void)
 {
@@ -89,6 +95,16 @@ static int rmi_configure(void)
 	return 0;
 }
 
+static int rmm_check_features(void)
+{
+	if (kvm_lpa2_is_enabled() && !rmi_has_feature(RMI_FEATURE_REGISTER_0_LPA2)) {
+		kvm_err("RMM doesn't support LPA2");
+		return -ENXIO;
+	}
+
+	return 0;
+}
+
 void kvm_init_rmi(void)
 {
 	/* Continue without realm support if we can't agree on a version */
@@ -100,6 +116,8 @@ void kvm_init_rmi(void)
 	if (WARN_ON(rmi_features(1, &rmm_feat_reg1)))
 		return;
 
+	if (rmm_check_features())
+		return;
 	if (rmi_configure())
 		return;
 
