@@ -51,6 +51,7 @@
 #include <asm/sections.h>
 #include <asm/tlbflush.h>
 #include <asm/ptrace.h>
+#include <asm/rsi.h>
 #include <asm/virt.h>
 
 #include <trace/events/ipi.h>
@@ -132,8 +133,12 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 	 * CPU was successfully started, wait for it to come online or
 	 * time out.
 	 */
-	wait_for_completion_timeout(&cpu_running,
-				    msecs_to_jiffies(5000));
+	{
+		unsigned long timeout = is_realm_world() ? 30000 : 5000;
+
+		wait_for_completion_timeout(&cpu_running,
+					    msecs_to_jiffies(timeout));
+	}
 	if (cpu_online(cpu))
 		return 0;
 
