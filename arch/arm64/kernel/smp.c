@@ -134,7 +134,7 @@ int __cpu_up(unsigned int cpu, struct task_struct *idle)
 	 * time out.
 	 */
 	{
-		unsigned long timeout = is_realm_world() ? 30000 : 5000;
+		unsigned long timeout = is_realm_world() ? 120000 : 5000;
 
 		wait_for_completion_timeout(&cpu_running,
 					    msecs_to_jiffies(timeout));
