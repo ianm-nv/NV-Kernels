@@ -39,6 +39,13 @@
 #define DRTM_PAGE_SIZE			0x1000
 
 /*
+ * Upper bound on the UEFI SRTM TPM event log (header + body): real logs
+ * are well under 64 KiB, so 1 MiB is generous slack while refusing
+ * pathological firmware sizes that could map unrelated DRAM.
+ */
+#define SL_SRTM_LOG_MAX			(1ULL * 1024 * 1024)
+
+/*
  * Preamble->DLME DTB-PA handoff slot: DTB PA written 8 bytes below the
  * DLME data region; sl_entry reads it via X0+X1-8 after D-CRTM ERET.
  * Private contract (not DEN0113); DTB PA validated before FDT is parsed.
