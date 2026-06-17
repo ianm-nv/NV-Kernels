@@ -140,6 +140,7 @@ void slaunch_validate_initrd(void);
 void slaunch_reserve_dlme_data(void);
 void slaunch_exit(void);
 void slaunch_measure_post_efi(void);
+bool slaunch_phys_is_protected_ram(phys_addr_t pa);
 #else
 static inline void slaunch_early_init(void) { }
 static inline void slaunch_setup(void) { }
@@ -147,6 +148,7 @@ static inline void slaunch_validate_initrd(void) { }
 static inline void slaunch_reserve_dlme_data(void) { }
 static inline void slaunch_exit(void) { }
 static inline void slaunch_measure_post_efi(void) { }
+static inline bool slaunch_phys_is_protected_ram(phys_addr_t pa) { return false; }
 #endif
 
 #endif /* __ASSEMBLY__ */

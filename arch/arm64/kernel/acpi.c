@@ -29,6 +29,8 @@
 #include <linux/suspend.h>
 #include <linux/pgtable.h>
 
+#include <asm/drtm.h>
+
 #include <acpi/ghes.h>
 #include <acpi/processor.h>
 #include <asm/cputype.h>
@@ -282,6 +284,11 @@ pgprot_t __acpi_get_mem_attribute(phys_addr_t addr)
 
 	u64 attr;
 
+	/* Never let the untrusted EFI attribute device-map kernel RAM or
+	 * the measured DLME; force cacheable for those. */
+	if (slaunch_phys_is_protected_ram(addr))
+		return PAGE_KERNEL;
+
 	attr = efi_mem_attributes(addr);
 	if (attr & EFI_MEMORY_WB)
 		return PAGE_KERNEL;
@@ -369,6 +376,13 @@ void __iomem *acpi_os_ioremap(acpi_physical_address phys, acpi_size size)
 			fallthrough;
 
 		default:
+			/* A non-RAM-typed descriptor (e.g. planted MMIO)
+			 * aliasing kernel RAM or the measured DLME must not be
+			 * device-mapped — refuse the mismatched alias. */
+			if (slaunch_phys_is_protected_ram(phys)) {
+				pr_warn(FW_BUG "DRTM: refusing device-map of kernel RAM/DLME @ %pa\n", &phys);
+				return NULL;
+			}
 			if (region->attribute & EFI_MEMORY_WB)
 				prot = PAGE_KERNEL;
 			else if (region->attribute & EFI_MEMORY_WC)
@@ -376,6 +390,11 @@ void __iomem *acpi_os_ioremap(acpi_physical_address phys, acpi_size size)
 			else if (region->attribute & EFI_MEMORY_WT)
 				prot = __acpi_get_writethrough_mem_attribute();
 		}
+	} else if (slaunch_phys_is_protected_ram(phys)) {
+		/* PA absent from the EFI map but inside kernel RAM/DLME —
+		 * upstream would device-map it; refuse. */
+		pr_warn(FW_BUG "DRTM: refusing device-map of unmapped kernel RAM/DLME @ %pa\n", &phys);
+		return NULL;
 	}
 	return __ioremap_prot(phys, size, prot);
 }
